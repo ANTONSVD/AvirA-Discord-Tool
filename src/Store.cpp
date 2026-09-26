@@ -131,6 +131,22 @@ namespace AvirA
 			if (any)
 				text += "pick_" + live_entries[i].m_guild.m_id + "=" + picks + "\n";
 		}
+		text += "[templates]\n";
+		for (size_t i = 0; i < m_templates.size() && i < 50; i++)
+			text += "template=" + Escaped(m_templates[i].m_name) + "||" + Escaped(m_templates[i].m_text) + "\n";
+		text += "multi=";
+		for (size_t i = 0; i < m_sender_accounts.size(); i++)
+		{
+			if (i)
+				text += ",";
+			text += m_sender_accounts[i];
+		}
+		text += "\n";
+		text += "spam=" + std::string(m_spam_on ? "1" : "0") + "\n";
+		text += "spamcount=" + FormatI32(m_spam_count) + "\n";
+		text += "spamdelay=" + FormatI32(m_spam_delay) + "\n";
+		text += "spamnumbers=" + std::string(m_spam_numbers ? "1" : "0") + "\n";
+		text += "senderdel=" + FormatI32(m_sender_del_count) + "\n";
 		text += "[cleaner]\n";
 		text += "guild=" + m_clean_guild_id + "\n";
 		text += "channel=" + m_clean_channel_id + "\n";
@@ -172,7 +188,7 @@ namespace AvirA
 		for (size_t i = 0; i < targets.size(); i++)
 		{
 			S_AutoTarget* item = targets[i];
-			text += "target=" + item->m_id + "|" + (item->m_on ? "1" : "0") + "|" + (item->m_reply_on ? "1" : "0") + "|" + (item->m_react_on ? "1" : "0") + "\n";
+			text += "target=" + item->m_id + "|" + (item->m_on ? "1" : "0") + "|" + (item->m_reply_on ? "1" : "0") + "|" + (item->m_react_on ? "1" : "0") + "|" + FormatI32(item->m_delete_after) + "\n";
 			std::string replies;
 			for (size_t k = 0; k < item->m_replies.size(); k++)
 			{
@@ -181,6 +197,14 @@ namespace AvirA
 				replies += Escaped(item->m_replies[k]);
 			}
 			text += "replies_" + item->m_id + "=" + replies + "\n";
+			std::string keywords;
+			for (size_t k = 0; k < item->m_keywords.size(); k++)
+			{
+				if (k)
+					keywords.push_back('\x1F');
+				keywords += Escaped(item->m_keywords[k]);
+			}
+			text += "keywords_" + item->m_id + "=" + keywords + "\n";
 			std::string emojis;
 			for (size_t k = 0; k < item->m_emojis.size(); k++)
 			{
@@ -189,6 +213,28 @@ namespace AvirA
 				emojis += item->m_emojis[k].m_raw;
 			}
 			text += "emojis_" + item->m_id + "=" + emojis + "\n";
+		}
+		auto tracked = m_tracker.All();
+		for (size_t i = 0; i < tracked.size(); i++)
+		{
+			std::string avatars;
+			for (size_t k = 0; k < tracked[i]->m_avatars.size() && k < 20; k++)
+			{
+				if (k)
+					avatars += ";";
+				avatars += FormatU64(tracked[i]->m_avatars[k].m_stamp) + "|" + tracked[i]->m_avatars[k].m_url;
+			}
+			if (!avatars.empty())
+				text += "avh_" + tracked[i]->m_id + "=" + avatars + "\n";
+			std::string banners;
+			for (size_t k = 0; k < tracked[i]->m_banners.size() && k < 20; k++)
+			{
+				if (k)
+					banners += ";";
+				banners += FormatU64(tracked[i]->m_banners[k].m_stamp) + "|" + tracked[i]->m_banners[k].m_url;
+			}
+			if (!banners.empty())
+				text += "bnh_" + tracked[i]->m_id + "=" + banners + "\n";
 		}
 		FILE* file = nullptr;
 		if (fopen_s(&file, path.c_str(), "wb") == 0 && file)
@@ -219,6 +265,8 @@ namespace AvirA
 		std::vector<std::string> watched;
 		std::vector<std::string> favorites;
 		std::vector<std::string> auto_watch;
+		std::unordered_map<std::string, std::vector<S_AvatarHist>> avh_pending;
+		std::unordered_map<std::string, std::vector<S_AvatarHist>> bnh_pending;
 		while (at < text.size())
 		{
 			size_t end = text.find('\n', at);
@@ -279,6 +327,62 @@ namespace AvirA
 					if (!guild.empty() && !ids.empty())
 						m_pending_picks[guild] = ids;
 				}
+			}
+			if (line.rfind("template=", 0) == 0)
+			{
+				std::string rest = line.substr(9);
+				size_t sep = rest.find("||");
+				if (sep != std::string::npos && m_templates.size() < 50)
+				{
+					S_TemplateItem item;
+					item.m_name = Unescaped(rest.substr(0, sep));
+					item.m_text = Unescaped(rest.substr(sep + 2));
+					if (!item.m_name.empty() && !item.m_text.empty())
+						m_templates.push_back(item);
+				}
+			}
+			if (line.rfind("multi=", 0) == 0)
+			{
+				std::string list = line.substr(6);
+				size_t p = 0;
+				while (p < list.size())
+				{
+					size_t comma = list.find(',', p);
+					std::string id = Trimmed(list.substr(p, comma == std::string::npos ? std::string::npos : comma - p));
+					if (!id.empty())
+						m_sender_accounts.push_back(id);
+					if (comma == std::string::npos)
+						break;
+					p = comma + 1;
+				}
+			}
+			if (line.rfind("spam=", 0) == 0)
+				m_spam_on = Trimmed(line.substr(5)) == "1";
+			if (line.rfind("spamcount=", 0) == 0)
+			{
+				m_spam_count = std::atoi(line.substr(10).c_str());
+				if (m_spam_count < 2)
+					m_spam_count = 2;
+				if (m_spam_count > 50)
+					m_spam_count = 50;
+			}
+			if (line.rfind("spamdelay=", 0) == 0)
+			{
+				m_spam_delay = std::atoi(line.substr(10).c_str());
+				if (m_spam_delay < 500)
+					m_spam_delay = 500;
+				if (m_spam_delay > 10000)
+					m_spam_delay = 10000;
+			}
+			if (line.rfind("spamnumbers=", 0) == 0)
+				m_spam_numbers = Trimmed(line.substr(12)) == "1";
+			if (line.rfind("senderdel=", 0) == 0)
+			{
+				m_sender_del_count = std::atoi(line.substr(10).c_str());
+				if (m_sender_del_count < 1)
+					m_sender_del_count = 1;
+				if (m_sender_del_count > 50)
+					m_sender_del_count = 50;
 			}
 			if (line.rfind("guild=", 0) == 0)
 			{
@@ -365,14 +469,24 @@ namespace AvirA
 				size_t p1 = rest.find('|');
 				size_t p2 = p1 == std::string::npos ? std::string::npos : rest.find('|', p1 + 1);
 				size_t p3 = p2 == std::string::npos ? std::string::npos : rest.find('|', p2 + 1);
+				size_t p4 = p3 == std::string::npos ? std::string::npos : rest.find('|', p3 + 1);
 				if (p1 != std::string::npos && p2 != std::string::npos && p3 != std::string::npos)
 				{
 					std::string id = rest.substr(0, p1);
 					bool on = rest.substr(p1 + 1, p2 - p1 - 1) == "1";
 					bool reply_on = rest.substr(p2 + 1, p3 - p2 - 1) == "1";
-					bool react_on = rest.substr(p3 + 1) == "1";
+					bool react_on = false;
+					int delafter = 0;
+					if (p4 == std::string::npos)
+						react_on = rest.substr(p3 + 1) == "1";
+					else
+					{
+						react_on = rest.substr(p3 + 1, p4 - p3 - 1) == "1";
+						delafter = std::atoi(rest.substr(p4 + 1).c_str());
+					}
 					std::vector<std::string> empty;
 					m_auto.RestoreTarget(id, on, reply_on, react_on, empty, empty);
+					m_auto.SetDeleteAfter(id, delafter);
 				}
 			}
 			if (line.rfind("replies_", 0) == 0)
@@ -411,6 +525,85 @@ namespace AvirA
 					}
 				}
 			}
+			if (line.rfind("keywords_", 0) == 0)
+			{
+				size_t eq = line.find('=');
+				if (eq != std::string::npos)
+				{
+					std::string id = line.substr(9, eq - 9);
+					S_AutoTarget* item = m_auto.Find(id);
+					if (item)
+						item->m_keywords = SplitUnit(line.substr(eq + 1));
+				}
+			}
+			if (line.rfind("avh_", 0) == 0)
+			{
+				size_t eq = line.find('=');
+				if (eq != std::string::npos)
+				{
+					std::string id = line.substr(4, eq - 4);
+					std::string list = line.substr(eq + 1);
+					size_t p = 0;
+					while (p < list.size())
+					{
+						size_t semi = list.find(';', p);
+						std::string part = list.substr(p, semi == std::string::npos ? std::string::npos : semi - p);
+						size_t bar = part.find('|');
+						if (bar != std::string::npos)
+						{
+							S_AvatarHist shot;
+							try
+							{
+								shot.m_stamp = std::stoull(part.substr(0, bar));
+							}
+							catch (...)
+							{
+								shot.m_stamp = 0;
+							}
+							shot.m_url = part.substr(bar + 1);
+							if (!id.empty() && !shot.m_url.empty() && avh_pending[id].size() < 20)
+								avh_pending[id].push_back(shot);
+						}
+						if (semi == std::string::npos)
+							break;
+						p = semi + 1;
+					}
+				}
+			}
+			if (line.rfind("bnh_", 0) == 0)
+			{
+				size_t eq = line.find('=');
+				if (eq != std::string::npos)
+				{
+					std::string id = line.substr(4, eq - 4);
+					std::string list = line.substr(eq + 1);
+					size_t p = 0;
+					while (p < list.size())
+					{
+						size_t semi = list.find(';', p);
+						std::string part = list.substr(p, semi == std::string::npos ? std::string::npos : semi - p);
+						size_t bar = part.find('|');
+						if (bar != std::string::npos)
+						{
+							S_AvatarHist shot;
+							try
+							{
+								shot.m_stamp = std::stoull(part.substr(0, bar));
+							}
+							catch (...)
+							{
+								shot.m_stamp = 0;
+							}
+							shot.m_url = part.substr(bar + 1);
+							if (!id.empty() && !shot.m_url.empty() && bnh_pending[id].size() < 20)
+								bnh_pending[id].push_back(shot);
+						}
+						if (semi == std::string::npos)
+							break;
+						p = semi + 1;
+					}
+				}
+			}
 			if (end == std::string::npos)
 				break;
 			at = end + 1;
@@ -420,9 +613,18 @@ namespace AvirA
 		for (size_t i = 0; i < auto_watch.size(); i++)
 			m_auto.SetWatch(auto_watch[i], true);
 		for (size_t i = 0; i < watched.size(); i++)
+			m_tracker.Restore(watched[i]);
+		for (auto& pair : avh_pending)
 		{
-			std::string error;
-			m_tracker.Add(watched[i], error);
+			S_Tracked* item = m_tracker.Find(pair.first);
+			if (item)
+				item->m_avatars = pair.second;
+		}
+		for (auto& pair : bnh_pending)
+		{
+			S_Tracked* item = m_tracker.Find(pair.first);
+			if (item)
+				item->m_banners = pair.second;
 		}
 	}
 
@@ -492,6 +694,87 @@ namespace AvirA
 	std::vector<std::string> C_Store::PendingFavorites() const
 	{
 		return m_pending_favorites;
+	}
+
+	std::vector<C_Store::S_TemplateItem> C_Store::Templates() const
+	{
+		return m_templates;
+	}
+
+	bool C_Store::AddTemplate(const std::string& name, const std::string& text)
+	{
+		std::string clean_name = Trimmed(name);
+		std::string clean_text = Trimmed(text);
+		if (clean_name.empty() || clean_text.empty() || clean_name.size() > 64)
+			return false;
+		if (clean_name.find("||") != std::string::npos || clean_name.find('\n') != std::string::npos)
+			return false;
+		if (m_templates.size() >= 50)
+			return false;
+		for (size_t i = 0; i < m_templates.size(); i++)
+		{
+			if (m_templates[i].m_name == clean_name)
+				return false;
+		}
+		S_TemplateItem item;
+		item.m_name = clean_name;
+		item.m_text = clean_text;
+		m_templates.push_back(item);
+		return true;
+	}
+
+	void C_Store::RemoveTemplate(size_t index)
+	{
+		if (index < m_templates.size())
+			m_templates.erase(m_templates.begin() + index);
+	}
+
+	std::vector<std::string> C_Store::SenderAccounts() const
+	{
+		return m_sender_accounts;
+	}
+
+	void C_Store::SetSenderAccounts(const std::vector<std::string>& ids)
+	{
+		m_sender_accounts = ids;
+	}
+
+	bool C_Store::SpamOn() const
+	{
+		return m_spam_on;
+	}
+
+	int C_Store::SpamCount() const
+	{
+		return m_spam_count;
+	}
+
+	int C_Store::SpamDelay() const
+	{
+		return m_spam_delay;
+	}
+
+	bool C_Store::SpamNumbers() const
+	{
+		return m_spam_numbers;
+	}
+
+	int C_Store::SenderDelCount() const
+	{
+		return m_sender_del_count;
+	}
+
+	void C_Store::SetSpam(bool on, int count, int delay, bool numbers)
+	{
+		m_spam_on = on;
+		m_spam_count = count < 2 ? 2 : (count > 50 ? 50 : count);
+		m_spam_delay = delay < 500 ? 500 : (delay > 10000 ? 10000 : delay);
+		m_spam_numbers = numbers;
+	}
+
+	void C_Store::SetSenderDelCount(int value)
+	{
+		m_sender_del_count = value < 1 ? 1 : (value > 50 ? 50 : value);
 	}
 
 	std::vector<C_Store::S_Account> C_Store::Accounts() const

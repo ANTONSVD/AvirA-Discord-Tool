@@ -2,6 +2,91 @@
 
 namespace AvirA
 {
+	static std::string Utf8Lowered(const std::string& text)
+	{
+		std::string out;
+		for (size_t i = 0; i < text.size();)
+		{
+			unsigned char c = (unsigned char)text[i];
+			if (c < 0x80)
+			{
+				out.push_back((char)tolower(c));
+				i++;
+			}
+			else if (c == 0xD0 && i + 1 < text.size())
+			{
+				unsigned char d = (unsigned char)text[i + 1];
+				if (d >= 0x90 && d <= 0xAF)
+				{
+					out.push_back((char)0xD0);
+					out.push_back((char)(d + 32));
+				}
+				else if (d == 0x81)
+				{
+					out.push_back((char)0xD1);
+					out.push_back((char)0x91);
+				}
+				else
+				{
+					out.push_back(text[i]);
+					out.push_back(text[i + 1]);
+				}
+				i += 2;
+			}
+			else if (c == 0xD1 && i + 1 < text.size())
+			{
+				out.push_back(text[i]);
+				out.push_back(text[i + 1]);
+				i += 2;
+			}
+			else if ((c & 0xE0) == 0xC0 && i + 1 < text.size())
+			{
+				out.push_back(text[i]);
+				out.push_back(text[i + 1]);
+				i += 2;
+			}
+			else if ((c & 0xF0) == 0xE0 && i + 2 < text.size())
+			{
+				out.push_back(text[i]);
+				out.push_back(text[i + 1]);
+				out.push_back(text[i + 2]);
+				i += 3;
+			}
+			else if ((c & 0xF8) == 0xF0 && i + 3 < text.size())
+			{
+				out.push_back(text[i]);
+				out.push_back(text[i + 1]);
+				out.push_back(text[i + 2]);
+				out.push_back(text[i + 3]);
+				i += 4;
+			}
+			else
+			{
+				out.push_back(text[i]);
+				i++;
+			}
+		}
+		return out;
+	}
+
+	static bool HasKeyword(const std::string& text, const std::vector<std::string>& keywords)
+	{
+		if (keywords.empty())
+			return true;
+		std::string low = Utf8Lowered(text);
+		for (size_t i = 0; i < keywords.size(); i++)
+		{
+			if (low.find(Utf8Lowered(keywords[i])) != std::string::npos)
+				return true;
+		}
+		return false;
+	}
+
+	C_Auto::C_Auto()
+	{
+		m_alive = std::make_shared<std::atomic<bool>>(true);
+	}
+
 	std::string S_AutoEmoji::Display() const
 	{
 		if (m_custom)
@@ -163,6 +248,53 @@ namespace AvirA
 		}
 	}
 
+	bool C_Auto::AddKeyword(const std::string& id, const std::string& text)
+	{
+		std::string clean = Trimmed(text);
+		if (clean.empty() || clean.size() > 120)
+			return false;
+		std::lock_guard<std::mutex> guard(m_lock);
+		for (size_t i = 0; i < m_items.size(); i++)
+		{
+			if (m_items[i].m_id == id)
+			{
+				for (size_t k = 0; k < m_items[i].m_keywords.size(); k++)
+				{
+					if (Utf8Lowered(m_items[i].m_keywords[k]) == Utf8Lowered(clean))
+						return false;
+				}
+				if (m_items[i].m_keywords.size() >= 30)
+					return false;
+				m_items[i].m_keywords.push_back(clean);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	void C_Auto::RemoveKeyword(const std::string& id, size_t index)
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		for (size_t i = 0; i < m_items.size(); i++)
+		{
+			if (m_items[i].m_id == id && index < m_items[i].m_keywords.size())
+			{
+				m_items[i].m_keywords.erase(m_items[i].m_keywords.begin() + index);
+				break;
+			}
+		}
+	}
+
+	void C_Auto::SetDeleteAfter(const std::string& id, int seconds)
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		for (size_t i = 0; i < m_items.size(); i++)
+		{
+			if (m_items[i].m_id == id)
+				m_items[i].m_delete_after = seconds < 0 ? 0 : seconds;
+		}
+	}
+
 	bool C_Auto::AddReply(const std::string& id, const std::string& text)
 	{
 		std::string clean = Trimmed(text);
@@ -304,12 +436,15 @@ namespace AvirA
 		bool expected = false;
 		if (!m_running.compare_exchange_strong(expected, true))
 			return;
+		m_alive = std::make_shared<std::atomic<bool>>(true);
 		m_thread = std::thread(&C_Auto::Worker, this);
 	}
 
 	void C_Auto::Stop()
 	{
 		m_running = false;
+		if (m_alive)
+			*m_alive = false;
 		if (m_thread.joinable())
 			m_thread.join();
 	}
@@ -323,6 +458,9 @@ namespace AvirA
 	{
 		if (!m_client || !m_client->HasToken())
 			return;
+		bool expected = false;
+		if (!m_polling.compare_exchange_strong(expected, true))
+			return;
 		std::vector<S_Channel> channels = WatchedChannels();
 		if (channels.empty())
 		{
@@ -331,7 +469,7 @@ namespace AvirA
 			for (size_t i = 0; i < m_snapshot.size() && channels.size() < 30; i++)
 				channels.push_back(m_snapshot[i]);
 		}
-		for (size_t i = 0; i < channels.size() && m_running; i++)
+		for (size_t i = 0; i < channels.size(); i++)
 		{
 			bool primed = false;
 			{
@@ -345,6 +483,7 @@ namespace AvirA
 				ScanChannel(channels[i]);
 			std::this_thread::sleep_for(std::chrono::milliseconds(120));
 		}
+		m_polling = false;
 	}
 
 	S_AutoEmoji C_Auto::ParseEmoji(const std::string& raw)
@@ -416,7 +555,7 @@ namespace AvirA
 			return;
 		if (recent.empty())
 			return;
-		for (int i = (int)recent.size() - 1; i >= 0 && m_running; i--)
+		for (int i = (int)recent.size() - 1; i >= 0 && m_polling; i--)
 		{
 			const C_Json& item = recent[i];
 			std::string message_id = item.GetText("id");
@@ -433,6 +572,7 @@ namespace AvirA
 			bool reply_on = false;
 			bool react_on = false;
 			std::string reply_text;
+			int delete_after = 0;
 			std::vector<S_AutoEmoji> emojis;
 			{
 				std::lock_guard<std::mutex> guard(m_lock);
@@ -443,11 +583,13 @@ namespace AvirA
 				std::string author_name = author ? author->GetText("username") : author_id;
 				if (target->m_name.empty())
 					target->m_name = author_name;
-				reply_on = target->m_reply_on && !target->m_replies.empty();
+				std::string content = item.GetText("content");
+				reply_on = target->m_reply_on && !target->m_replies.empty() && HasKeyword(content, target->m_keywords);
 				if (reply_on)
 				{
 					reply_text = target->m_replies[target->m_reply_pos % target->m_replies.size()];
 					target->m_reply_pos++;
+					delete_after = target->m_delete_after;
 				}
 				react_on = target->m_react_on && !target->m_emojis.empty();
 				if (react_on)
@@ -458,12 +600,40 @@ namespace AvirA
 			if (reply_on)
 			{
 				std::string error;
-				if (m_client->ReplyText(channel.m_id, message_id, reply_text, error))
+				std::string reply_id;
+				if (m_client->ReplyText(channel.m_id, message_id, reply_text, error, &reply_id))
 				{
-					std::lock_guard<std::mutex> guard(m_lock);
-					S_AutoTarget* again = Find(author_id);
-					if (again)
-						Emit(*again, "reply", "Replied in #" + channel.m_name + ": " + reply_text.substr(0, 80));
+					{
+						std::lock_guard<std::mutex> guard(m_lock);
+						S_AutoTarget* again = Find(author_id);
+						if (again)
+							Emit(*again, "reply", "Replied in #" + channel.m_name + ": " + reply_text.substr(0, 80));
+					}
+					if (delete_after > 0 && !reply_id.empty())
+					{
+						std::shared_ptr<std::atomic<bool>> alive = m_alive;
+						C_DiscordClient* client = m_client;
+						std::string target_id = author_id;
+						std::string channel_id = channel.m_id;
+						std::string channel_name = channel.m_name;
+						std::thread([this, alive, client, target_id, channel_id, channel_name, reply_id, delete_after]() {
+							for (int left = delete_after * 10; left > 0; left--)
+							{
+								if (!*alive)
+									return;
+								std::this_thread::sleep_for(std::chrono::milliseconds(100));
+							}
+							if (!*alive || !client)
+								return;
+							if (client->DeleteMessage(channel_id, reply_id))
+							{
+								std::lock_guard<std::mutex> guard(m_lock);
+								S_AutoTarget* again = Find(target_id);
+								if (again)
+									Emit(*again, "delete", "Deleted reply in #" + channel_name);
+							}
+						}).detach();
+					}
 				}
 				else
 				{
@@ -476,7 +646,7 @@ namespace AvirA
 			}
 			if (react_on)
 			{
-				for (size_t e = 0; e < emojis.size() && m_running; e++)
+				for (size_t e = 0; e < emojis.size() && m_polling; e++)
 				{
 					std::string error;
 					if (m_client->AddReaction(channel.m_id, message_id, emojis[e].m_raw, error))

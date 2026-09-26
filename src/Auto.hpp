@@ -1,5 +1,6 @@
 #pragma once
 #include "Discord.hpp"
+#include <memory>
 
 namespace AvirA
 {
@@ -27,6 +28,8 @@ namespace AvirA
 		bool m_reply_on = false;
 		std::vector<std::string> m_replies;
 		size_t m_reply_pos = 0;
+		std::vector<std::string> m_keywords;
+		int m_delete_after = 0;
 		bool m_react_on = false;
 		std::vector<S_AutoEmoji> m_emojis;
 		std::vector<S_AutoLog> m_logs;
@@ -35,6 +38,7 @@ namespace AvirA
 	class C_Auto
 	{
 	public:
+		C_Auto();
 		void Attach(C_DiscordClient* client);
 		void SetInterval(int seconds);
 		int Interval() const;
@@ -51,6 +55,9 @@ namespace AvirA
 		void SetReplyOn(const std::string& id, bool value);
 		bool AddReply(const std::string& id, const std::string& text);
 		void RemoveReply(const std::string& id, size_t index);
+		bool AddKeyword(const std::string& id, const std::string& text);
+		void RemoveKeyword(const std::string& id, size_t index);
+		void SetDeleteAfter(const std::string& id, int seconds);
 		void SetReactOn(const std::string& id, bool value);
 		bool AddEmoji(const std::string& id, const std::string& raw);
 		void RemoveEmoji(const std::string& id, size_t index);
@@ -83,6 +90,8 @@ namespace AvirA
 		std::mutex m_lock;
 		std::thread m_thread;
 		std::atomic<bool> m_running = false;
+		std::atomic<bool> m_polling = false;
+		std::shared_ptr<std::atomic<bool>> m_alive;
 		int m_interval = 8;
 	};
 }

@@ -11,11 +11,19 @@ namespace AvirA
 		std::string m_kind;
 	};
 
+	struct S_AvatarHist
+	{
+		u64 m_stamp = 0;
+		std::string m_url;
+	};
+
 	struct S_Tracked
 	{
 		std::string m_id;
 		S_Profile m_last;
 		std::vector<S_TrackLog> m_logs;
+		std::vector<S_AvatarHist> m_avatars;
+		std::vector<S_AvatarHist> m_banners;
 		bool m_watching = true;
 		bool m_fresh = true;
 		u64 m_checked = 0;
@@ -30,6 +38,7 @@ namespace AvirA
 		int Interval() const;
 
 		bool Add(const std::string& id, std::string& error);
+		void Restore(const std::string& id);
 		void Remove(const std::string& id);
 		void Clear();
 		void SetWatching(const std::string& id, bool watching);

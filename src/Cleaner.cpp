@@ -37,7 +37,8 @@ namespace AvirA
 			{
 				found[k].m_guild = channels[i].m_guild;
 				found[k].m_channel_name = channels[i].m_name;
-				found[k].m_jump = "https://discord.com/channels/" + channels[i].m_guild + "/" + channels[i].m_id + "/" + found[k].m_id;
+				std::string root = channels[i].m_guild == "dm" ? "@me" : channels[i].m_guild;
+				found[k].m_jump = "https://discord.com/channels/" + root + "/" + channels[i].m_id + "/" + found[k].m_id;
 				if (!MatchFilter(found[k], filter, now))
 					continue;
 				S_OwnMessage item;

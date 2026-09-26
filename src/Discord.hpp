@@ -77,6 +77,7 @@ namespace AvirA
 		bool FetchGuilds(std::vector<S_Guild>& out);
 		bool FetchChannels(const std::string& guild, std::vector<S_Channel>& out);
 		bool FetchThreads(const std::string& guild, std::vector<S_Channel>& out);
+		bool FetchDMs(std::vector<S_Channel>& out);
 		static bool SendableKind(int kind);
 		static std::string KindLabel(int kind);
 		static std::string ShortError(const S_HttpResult& result);
@@ -86,7 +87,7 @@ namespace AvirA
 		bool FetchMyMessages(const std::string& channel, const std::string& me, int limit, std::vector<S_Message>& out);
 		bool FetchRecent(const std::string& channel, int limit, const std::string& after, std::vector<C_Json>& out);
 		bool FetchGuildEmojis(const std::string& guild, std::vector<S_GuildEmoji>& out);
-		bool ReplyText(const std::string& channel, const std::string& message, const std::string& text, std::string& error);
+		bool ReplyText(const std::string& channel, const std::string& message, const std::string& text, std::string& error, std::string* out_id = nullptr);
 		bool AddReaction(const std::string& channel, const std::string& message, const std::string& emoji, std::string& error);
 		bool SendTyping(const std::string& channel, std::string& error, double* retry_after = nullptr, bool* was_global = nullptr);
 		bool DeleteMessage(const std::string& channel, const std::string& id);

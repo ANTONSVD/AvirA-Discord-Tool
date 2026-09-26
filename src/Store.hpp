@@ -59,6 +59,27 @@ namespace AvirA
 		std::string CleanText() const;
 		bool CleanOnly() const;
 
+		struct S_TemplateItem
+		{
+			std::string m_name;
+			std::string m_text;
+		};
+
+		std::vector<S_TemplateItem> Templates() const;
+		bool AddTemplate(const std::string& name, const std::string& text);
+		void RemoveTemplate(size_t index);
+
+		std::vector<std::string> SenderAccounts() const;
+		void SetSenderAccounts(const std::vector<std::string>& ids);
+
+		bool SpamOn() const;
+		int SpamCount() const;
+		int SpamDelay() const;
+		bool SpamNumbers() const;
+		int SenderDelCount() const;
+		void SetSpam(bool on, int count, int delay, bool numbers);
+		void SetSenderDelCount(int value);
+
 	private:
 		C_DiscordClient m_client;
 		C_Tracker m_tracker;
@@ -81,5 +102,12 @@ namespace AvirA
 		int m_clean_limit = 200;
 		std::string m_clean_text;
 		bool m_clean_only = false;
+		std::vector<S_TemplateItem> m_templates;
+		std::vector<std::string> m_sender_accounts;
+		bool m_spam_on = false;
+		int m_spam_count = 5;
+		int m_spam_delay = 1500;
+		bool m_spam_numbers = true;
+		int m_sender_del_count = 10;
 	};
 }

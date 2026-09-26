@@ -3,6 +3,7 @@
 #include "imgui.h"
 #include <Windows.h>
 #include <commdlg.h>
+#include <shellapi.h>
 
 namespace AvirA
 {
@@ -16,6 +17,11 @@ namespace AvirA
 		m_clean_guild_id = m_store.PendingCleanGuild();
 		m_clean_channel_id = m_store.PendingCleanChannel();
 		m_clean_resolve = true;
+		m_spam_mode = m_store.SpamOn();
+		m_spam_count = m_store.SpamCount();
+		m_spam_delay = m_store.SpamDelay();
+		m_spam_numbers = m_store.SpamNumbers();
+		m_sender_del_count = m_store.SenderDelCount();
 		m_filter.m_limit = m_store.CleanLimit();
 		m_filter.m_only_text = m_store.CleanOnly();
 		strncpy_s(m_clean_text, m_store.CleanText().c_str(), sizeof(m_clean_text) - 1);
@@ -195,6 +201,8 @@ namespace AvirA
 		m_store.SetMe("", "");
 		m_store.Spammer()->Entries().clear();
 		m_store.Cleaner()->Clear();
+		m_dm_channels.clear();
+		m_dm_loaded = false;
 	}
 
 	void C_App::Logout()
@@ -289,20 +297,155 @@ namespace AvirA
 
 	void C_App::SendSpam()
 	{
+		SendSpamWith(m_message_edit);
+	}
+
+	void C_App::SendSpamWith(const std::string& text)
+	{
 		if (m_spam_busy)
 			return;
 		m_spam_error.clear();
 		m_spam_busy = true;
 		m_spam_done = 0;
 		m_spam_total = 0;
-		std::string text = m_message_edit;
+		m_spam_delay_now = m_spam_delay;
+		std::string copy = text;
 		std::vector<std::string> files = m_files;
 		C_Spammer* spammer = m_store.Spammer();
-		std::thread([this, spammer, text, files]() {
+		bool spam = m_spam_mode;
+		int count = m_spam_count;
+		int delay = m_spam_delay;
+		bool numbers = m_spam_numbers;
+		std::vector<std::string> account_ids = m_store.SenderAccounts();
+		std::vector<C_Store::S_Account> accounts = m_store.Accounts();
+		std::string active = m_store.MeId();
+		std::thread([this, spammer, copy, files, spam, count, delay, numbers, account_ids, accounts, active]() {
+			std::vector<C_DiscordClient> clients;
+			std::vector<std::string> labels;
+			std::vector<C_DiscordClient*> pointers;
+			if (account_ids.empty())
+			{
+				for (size_t i = 0; i < accounts.size(); i++)
+				{
+					if (accounts[i].m_id == active)
+					{
+						clients.push_back(C_DiscordClient());
+						clients.back().SetToken(accounts[i].m_token);
+						labels.push_back(accounts[i].m_name);
+						break;
+					}
+				}
+				if (clients.empty())
+				{
+					clients.push_back(C_DiscordClient());
+					clients.back().SetToken(m_store.Token());
+					labels.push_back(m_store.MeName());
+				}
+			}
+			else
+			{
+				for (size_t i = 0; i < account_ids.size(); i++)
+				{
+					for (size_t k = 0; k < accounts.size(); k++)
+					{
+						if (accounts[k].m_id == account_ids[i])
+						{
+							clients.push_back(C_DiscordClient());
+							clients.back().SetToken(accounts[k].m_token);
+							labels.push_back(accounts[k].m_name);
+							break;
+						}
+					}
+				}
+			}
+			if (clients.empty())
+			{
+				m_spam_error = "Pick accounts";
+				m_spam_busy = false;
+				return;
+			}
+			for (size_t i = 0; i < clients.size(); i++)
+				pointers.push_back(&clients[i]);
+			std::vector<S_SendTarget> targets = spammer->BuildMultiTargets(pointers, labels);
+			S_SendOptions options;
+			options.m_repeat = spam ? count : 1;
+			options.m_delay_ms = delay;
+			options.m_numbers = numbers && spam;
+			options.m_delay_view = &m_spam_delay_now;
 			std::string error;
-			spammer->SendAll(text, files, error, &m_spam_done, &m_spam_total);
+			spammer->SendTargets(targets, copy, files, options, error, &m_spam_done, &m_spam_total);
 			m_spam_error = error;
 			m_spam_busy = false;
+		}).detach();
+	}
+
+	void C_App::DeleteSenderMine()
+	{
+		if (m_sdel_busy || m_spam_busy)
+			return;
+		if (!m_store.Logged())
+		{
+			m_spam_error = "Login first";
+			return;
+		}
+		m_sdel_busy = true;
+		m_sdel_done = 0;
+		m_sdel_total = 0;
+		m_spam_error = "Deleting mine...";
+		auto& entries = m_store.Spammer()->Entries();
+		std::vector<S_Channel> targets;
+		for (size_t i = 0; i < entries.size(); i++)
+		{
+			for (size_t k = 0; k < entries[i].m_channels.size() && k < entries[i].m_picked.size(); k++)
+			{
+				if (entries[i].m_picked[k])
+					targets.push_back(entries[i].m_channels[k]);
+			}
+		}
+		int count = m_sender_del_count;
+		C_DiscordClient* client = m_store.Client();
+		std::string me = m_store.MeId();
+		std::thread([this, client, me, targets, count]() {
+			int deleted = 0;
+			int failed = 0;
+			m_sdel_total = (int)targets.size();
+			for (size_t i = 0; i < targets.size(); i++)
+			{
+				std::vector<S_Message> found;
+				client->FetchMyMessages(targets[i].m_id, me, count, found);
+				for (size_t k = 0; k < found.size(); k++)
+				{
+					if (!client->DeleteMessage(targets[i].m_id, found[k].m_id))
+						failed++;
+					else
+						deleted++;
+					std::this_thread::sleep_for(std::chrono::milliseconds(450));
+				}
+				m_sdel_done++;
+				std::this_thread::sleep_for(std::chrono::milliseconds(250));
+			}
+			if (failed > 0)
+				m_spam_error = "Deleted " + FormatI32(deleted) + ", fails " + FormatI32(failed);
+			else
+				m_spam_error = "Deleted " + FormatI32(deleted);
+			m_sdel_busy = false;
+		}).detach();
+	}
+
+	void C_App::LoadDMs()
+	{
+		if (m_dm_busy)
+			return;
+		m_dm_busy = true;
+		C_DiscordClient* client = m_store.Client();
+		std::thread([this, client]() {
+			std::vector<S_Channel> out;
+			if (client->FetchDMs(out))
+			{
+				m_dm_channels = out;
+				m_dm_loaded = true;
+			}
+			m_dm_busy = false;
 		}).detach();
 	}
 
@@ -310,8 +453,6 @@ namespace AvirA
 	{
 		std::vector<S_Channel> out;
 		auto& entries = m_store.Spammer()->Entries();
-		if (entries.empty())
-			return out;
 		if (m_clean_guild_index <= 0)
 		{
 			for (size_t i = 0; i < entries.size(); i++)
@@ -322,9 +463,11 @@ namespace AvirA
 			return out;
 		}
 		size_t index = (size_t)(m_clean_guild_index - 1);
-		if (index >= entries.size())
-			return out;
-		return entries[index].m_channels;
+		if (index < entries.size())
+			return entries[index].m_channels;
+		if (index == entries.size())
+			return m_dm_channels;
+		return out;
 	}
 
 	void C_App::RefreshCleaner()
@@ -341,12 +484,36 @@ namespace AvirA
 		m_clean_done = 0;
 		C_Spammer* spammer = m_store.Spammer();
 		C_Cleaner* cleaner = m_store.Cleaner();
+		C_DiscordClient* client = m_store.Client();
 		S_CleanFilter filter = m_filter;
 		int guild_index = m_clean_guild_index;
 		int channel_index = m_clean_channel_index;
-		std::thread([this, spammer, cleaner, filter, guild_index, channel_index]() {
+		std::string want_guild = "all";
+		{
+			auto& live = spammer->Entries();
+			if (guild_index > 0)
+			{
+				if ((size_t)(guild_index - 1) < live.size())
+					want_guild = live[guild_index - 1].m_guild.m_id;
+				else
+					want_guild = "dm";
+			}
+		}
+		std::thread([this, spammer, cleaner, client, filter, guild_index, channel_index, want_guild]() {
 			std::string error;
-			if (spammer->Entries().empty())
+			if (want_guild == "dm")
+			{
+				std::vector<S_Channel> dm;
+				if (!client->FetchDMs(dm))
+				{
+					m_clean_error = "No DMs";
+					m_clean_busy = false;
+					return;
+				}
+				m_dm_channels = dm;
+				m_dm_loaded = true;
+			}
+			else if (spammer->Entries().empty())
 			{
 				if (!spammer->RefreshGuilds(error))
 				{
@@ -379,7 +546,9 @@ namespace AvirA
 				}
 			}
 			std::vector<S_Channel> channels;
-			if (guild_index <= 0)
+			if (want_guild == "dm")
+				channels = m_dm_channels;
+			else if (want_guild == "all")
 			{
 				for (size_t i = 0; i < spammer->Entries().size(); i++)
 				{
@@ -389,9 +558,16 @@ namespace AvirA
 			}
 			else
 			{
-				size_t index = (size_t)(guild_index - 1);
-				if (index < spammer->Entries().size())
-					channels = spammer->Entries()[index].m_channels;
+				S_GuildEntry* entry = spammer->FindEntry(want_guild);
+				if (entry)
+				{
+					if (!entry->m_loaded)
+					{
+						std::string channel_error;
+						spammer->RefreshChannels(*entry, channel_error);
+					}
+					channels = entry->m_channels;
+				}
 			}
 			if (channels.empty())
 			{
@@ -601,6 +777,36 @@ namespace AvirA
 		ImGui::TextDisabled("Game: %s", game.empty() ? "-" : game.c_str());
 		if (!current->m_last.m_bio.empty())
 			ImGui::TextWrapped("Bio: %s", current->m_last.m_bio.c_str());
+		if (ImGui::CollapsingHeader(("Avatars (" + FormatU64(current->m_avatars.size()) + ")##av" + current->m_id).c_str()))
+		{
+			if (current->m_avatars.empty())
+				ImGui::TextDisabled("Empty yet.");
+			for (int i = (int)current->m_avatars.size() - 1; i >= 0; i--)
+			{
+				ImGui::TextDisabled("[%s]", TimeString(current->m_avatars[i].m_stamp).c_str());
+				ImGui::SameLine();
+				if (ImGui::SmallButton(("Open##av" + current->m_id + FormatU64(i)).c_str()))
+					ShellExecuteA(nullptr, "open", current->m_avatars[i].m_url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+				ImGui::SameLine();
+				if (ImGui::SmallButton(("Copy##av" + current->m_id + FormatU64(i)).c_str()))
+					ImGui::SetClipboardText(current->m_avatars[i].m_url.c_str());
+			}
+		}
+		if (ImGui::CollapsingHeader(("Banners (" + FormatU64(current->m_banners.size()) + ")##bn" + current->m_id).c_str()))
+		{
+			if (current->m_banners.empty())
+				ImGui::TextDisabled("Empty yet.");
+			for (int i = (int)current->m_banners.size() - 1; i >= 0; i--)
+			{
+				ImGui::TextDisabled("[%s]", TimeString(current->m_banners[i].m_stamp).c_str());
+				ImGui::SameLine();
+				if (ImGui::SmallButton(("Open##bn" + current->m_id + FormatU64(i)).c_str()))
+					ShellExecuteA(nullptr, "open", current->m_banners[i].m_url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+				ImGui::SameLine();
+				if (ImGui::SmallButton(("Copy##bn" + current->m_id + FormatU64(i)).c_str()))
+					ImGui::SetClipboardText(current->m_banners[i].m_url.c_str());
+			}
+		}
 		ImGui::Separator();
 		bool watch = current->m_watching;
 		if (ImGui::Checkbox(("Watching##" + current->m_id).c_str(), &watch))
@@ -640,9 +846,9 @@ namespace AvirA
 
 	void C_App::DrawSender()
 	{
-		ImGui::BeginChild("send_box", ImVec2(0, 210), true);
+		ImGui::BeginChild("send_box", ImVec2(0, 330), true);
 		ImGui::Text("Message");
-		ImGui::InputTextMultiline("##msg", m_message_edit, sizeof(m_message_edit), ImVec2(-1, 80));
+		ImGui::InputTextMultiline("##msg", m_message_edit, sizeof(m_message_edit), ImVec2(-1, 60));
 		ImGui::PushItemWidth(-110);
 		bool submit_path = ImGui::InputTextWithHint("##file", "Path by hand, Enter to add", m_file_edit, sizeof(m_file_edit), ImGuiInputTextFlags_EnterReturnsTrue);
 		ImGui::PopItemWidth();
@@ -672,6 +878,83 @@ namespace AvirA
 		}
 		if (m_files.empty())
 			ImGui::TextDisabled("No files. Text, pics and videos supported, up to 10.");
+		auto sender_accounts = m_store.Accounts();
+		if (sender_accounts.size() > 1)
+		{
+			ImGui::TextDisabled("Send as:");
+			ImGui::SameLine();
+			auto picked_accounts = m_store.SenderAccounts();
+			for (size_t i = 0; i < sender_accounts.size(); i++)
+			{
+				bool on = picked_accounts.empty() ? sender_accounts[i].m_id == m_store.MeId() : false;
+				if (!picked_accounts.empty())
+				{
+					for (size_t k = 0; k < picked_accounts.size(); k++)
+					{
+						if (picked_accounts[k] == sender_accounts[i].m_id)
+						{
+							on = true;
+							break;
+						}
+					}
+				}
+				if (i)
+					ImGui::SameLine();
+				if (ImGui::Checkbox((sender_accounts[i].m_name + "##sa" + sender_accounts[i].m_id).c_str(), &on))
+				{
+					std::vector<std::string> next = picked_accounts;
+					if (on)
+						next.push_back(sender_accounts[i].m_id);
+					else
+					{
+						for (size_t k = 0; k < next.size(); k++)
+						{
+							if (next[k] == sender_accounts[i].m_id)
+							{
+								next.erase(next.begin() + k);
+								break;
+							}
+						}
+					}
+					m_store.SetSenderAccounts(next);
+					m_store_dirty = true;
+				}
+			}
+		}
+		bool spam_on = m_spam_mode;
+		if (ImGui::Checkbox("Spam", &spam_on))
+		{
+			m_spam_mode = spam_on;
+			m_store.SetSpam(spam_on, m_spam_count, m_spam_delay, m_spam_numbers);
+			m_store_dirty = true;
+		}
+		if (m_spam_mode)
+		{
+			ImGui::SameLine();
+			ImGui::PushItemWidth(110);
+			if (ImGui::SliderInt("Times", &m_spam_count, 2, 50))
+			{
+				m_store.SetSpam(m_spam_mode, m_spam_count, m_spam_delay, m_spam_numbers);
+				m_store_dirty = true;
+			}
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			ImGui::PushItemWidth(150);
+			if (ImGui::SliderInt("Delay ms", &m_spam_delay, 500, 10000))
+			{
+				m_store.SetSpam(m_spam_mode, m_spam_count, m_spam_delay, m_spam_numbers);
+				m_store_dirty = true;
+			}
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			bool numbers = m_spam_numbers;
+			if (ImGui::Checkbox("Numbers", &numbers))
+			{
+				m_spam_numbers = numbers;
+				m_store.SetSpam(m_spam_mode, m_spam_count, m_spam_delay, m_spam_numbers);
+				m_store_dirty = true;
+			}
+		}
 		size_t picked = m_store.Spammer()->PickedCount();
 		std::string send_label = "Send to " + FormatU64(picked);
 		if (m_spam_busy)
@@ -682,7 +965,7 @@ namespace AvirA
 			ImGui::SameLine();
 			C_Theme::Spinner("##sendspin", 18, 2.5f);
 			ImGui::SameLine();
-			ImGui::TextDisabled("%d / %d", m_spam_done.load(), m_spam_total.load());
+			ImGui::TextDisabled("%d / %d delay %dms", m_spam_done.load(), m_spam_total.load(), m_spam_delay_now.load());
 			ImGui::SameLine();
 			if (ImGui::SmallButton("Stop"))
 				m_store.Spammer()->Cancel();
@@ -695,10 +978,69 @@ namespace AvirA
 			if (ImGui::SmallButton("Clear picks"))
 				m_store.Spammer()->ClearPicks();
 		}
-		if (!m_spam_error.empty())
+		if (m_sdel_busy)
 		{
+			ImGui::BeginDisabled();
+			ImGui::Button("Deleting mine...", ImVec2(180, 0));
+			ImGui::EndDisabled();
 			ImGui::SameLine();
+			ImGui::TextDisabled("%d / %d", m_sdel_done.load(), m_sdel_total.load());
+		}
+		else
+		{
+			ImGui::PushItemWidth(110);
+			if (ImGui::SliderInt("My last", &m_sender_del_count, 1, 50))
+			{
+				m_store.SetSenderDelCount(m_sender_del_count);
+				m_store_dirty = true;
+			}
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			if (ImGui::Button("Delete mine in picked", ImVec2(180, 0)))
+				DeleteSenderMine();
+		}
+		if (!m_spam_error.empty())
 			ImGui::TextDisabled("%s", m_spam_error.c_str());
+		ImGui::EndChild();
+
+		ImGui::BeginChild("templates", ImVec2(0, 130), true);
+		ImGui::Text("Templates");
+		ImGui::PushItemWidth(160);
+		ImGui::InputTextWithHint("##tplname", "Name", m_tpl_name, sizeof(m_tpl_name));
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Save current text"))
+		{
+			if (m_store.AddTemplate(m_tpl_name, m_message_edit))
+			{
+				memset(m_tpl_name, 0, sizeof(m_tpl_name));
+				m_store_dirty = true;
+			}
+		}
+		auto templates = m_store.Templates();
+		if (templates.empty())
+			ImGui::TextDisabled("Empty. Name it and save current text.");
+		for (size_t i = 0; i < templates.size(); i++)
+		{
+			if (ImGui::SmallButton(("Send##tpl" + FormatU64(i)).c_str()))
+				SendSpamWith(templates[i].m_text);
+			ImGui::SameLine();
+			ImGui::Text("%s", templates[i].m_name.c_str());
+			ImGui::SameLine();
+			std::string short_text = Utf8Cut(templates[i].m_text, 60);
+			for (size_t c = 0; c < short_text.size(); c++)
+			{
+				if (short_text[c] == '\n')
+					short_text[c] = ' ';
+			}
+			ImGui::TextDisabled("%s", short_text.c_str());
+			ImGui::SameLine(ImGui::GetWindowWidth() - 40);
+			if (ImGui::SmallButton(("x##tpl" + FormatU64(i)).c_str()))
+			{
+				m_store.RemoveTemplate(i);
+				m_store_dirty = true;
+				break;
+			}
 		}
 		ImGui::EndChild();
 
@@ -781,7 +1123,7 @@ namespace AvirA
 	void C_App::DrawCleaner()
 	{
 		auto& entries = m_store.Spammer()->Entries();
-		if (m_clean_resolve && !entries.empty())
+		if (m_clean_resolve && (!entries.empty() || m_clean_guild_id == "dm"))
 		{
 			m_clean_guild_index = 0;
 			for (size_t i = 0; i < entries.size(); i++)
@@ -792,6 +1134,8 @@ namespace AvirA
 					break;
 				}
 			}
+			if (m_clean_guild_index == 0 && m_clean_guild_id == "dm" && !entries.empty())
+				m_clean_guild_index = (int)entries.size() + 1;
 			std::vector<S_Channel> resolved = CleanerChannels();
 			m_clean_channel_index = 0;
 			for (size_t i = 0; i < resolved.size(); i++)
@@ -817,13 +1161,21 @@ namespace AvirA
 			guild_keep.push_back(entries[i].m_guild.m_name);
 		for (size_t i = 0; i < guild_keep.size(); i++)
 			guild_names.push_back(guild_keep[i].c_str());
+		guild_names.push_back("DMs");
 		if (m_clean_guild_index >= (int)guild_names.size())
 			m_clean_guild_index = 0;
-		ImGui::PushItemWidth(220);
+		ImGui::PushItemWidth(200);
 		if (ImGui::Combo("Server", &m_clean_guild_index, guild_names.data(), (int)guild_names.size()))
 		{
 			m_clean_channel_index = 0;
-			std::string guild = m_clean_guild_index <= 0 ? "all" : entries[m_clean_guild_index - 1].m_guild.m_id;
+			std::string guild = "all";
+			if (m_clean_guild_index > 0)
+			{
+				if ((size_t)(m_clean_guild_index - 1) < entries.size())
+					guild = entries[m_clean_guild_index - 1].m_guild.m_id;
+				else
+					guild = "dm";
+			}
 			m_clean_guild_id = guild;
 			m_clean_channel_id = "all";
 			PushCleanState(m_store, guild, "all", hours_values[m_clean_hours_index < 0 || m_clean_hours_index >= 6 ? 0 : m_clean_hours_index], m_filter.m_limit, Trimmed(m_clean_text), m_filter.m_only_text);
@@ -831,6 +1183,21 @@ namespace AvirA
 		}
 		ImGui::PopItemWidth();
 		ImGui::SameLine();
+		if ((size_t)m_clean_guild_index == entries.size() + 1)
+		{
+			if (m_dm_busy)
+			{
+				ImGui::BeginDisabled();
+				ImGui::SmallButton("Loading...");
+				ImGui::EndDisabled();
+			}
+			else
+			{
+				if (ImGui::SmallButton(m_dm_loaded ? ("DMs (" + FormatU64(m_dm_channels.size()) + ")##dmload").c_str() : "Load DMs"))
+					LoadDMs();
+			}
+			ImGui::SameLine();
+		}
 		std::vector<const char*> names;
 		names.push_back("All channels");
 		std::vector<std::string> keep;
@@ -927,7 +1294,7 @@ namespace AvirA
 		auto& items = m_store.Cleaner()->Items();
 		if (items.empty())
 		{
-			ImGui::TextDisabled("Empty. Pick a server above, then Scan mine. Channels load automatically.");
+			ImGui::TextDisabled("Empty. Pick a server or DMs above, then Scan mine. Channels load automatically.");
 			if (m_clean_busy)
 			{
 				ImGui::SameLine();
@@ -1099,6 +1466,50 @@ namespace AvirA
 		}
 		if (current->m_replies.empty())
 			ImGui::TextDisabled("No replies yet, they go round-robin.");
+		ImGui::PushItemWidth(220);
+		bool submit_keyword = ImGui::InputTextWithHint(("##kw" + self_id).c_str(), "Keyword, Enter to add", m_auto_keyword_edit, sizeof(m_auto_keyword_edit), ImGuiInputTextFlags_EnterReturnsTrue);
+		ImGui::PopItemWidth();
+		if (submit_keyword && !Trimmed(m_auto_keyword_edit).empty())
+		{
+			if (m_store.Auto()->AddKeyword(self_id, m_auto_keyword_edit))
+			{
+				memset(m_auto_keyword_edit, 0, sizeof(m_auto_keyword_edit));
+				m_store.Save();
+			}
+		}
+		for (size_t i = 0; i < current->m_keywords.size(); i++)
+		{
+			if (i)
+				ImGui::SameLine();
+			if (ImGui::SmallButton((current->m_keywords[i] + "##kw" + self_id + FormatU64(i)).c_str()))
+			{
+				m_store.Auto()->RemoveKeyword(self_id, i);
+				m_store.Save();
+				break;
+			}
+		}
+		if (current->m_keywords.empty())
+			ImGui::TextDisabled("No keywords means reply to everything. Click keyword to remove.");
+		else
+			ImGui::TextDisabled("Replies only when his message has one of these. Click to remove.");
+		const char* del_labels[] = { "Keep", "30 sec", "1 min", "5 min", "15 min", "1 hour" };
+		int del_values[] = { 0, 30, 60, 300, 900, 3600 };
+		int del_index = 0;
+		for (int i = 0; i < 6; i++)
+		{
+			if (del_values[i] == current->m_delete_after)
+			{
+				del_index = i;
+				break;
+			}
+		}
+		ImGui::PushItemWidth(150);
+		if (ImGui::Combo(("Delete reply##" + self_id).c_str(), &del_index, del_labels, 6))
+		{
+			m_store.Auto()->SetDeleteAfter(self_id, del_values[del_index]);
+			m_store.Save();
+		}
+		ImGui::PopItemWidth();
 		ImGui::Separator();
 		bool react_on = current->m_react_on;
 		if (ImGui::Checkbox(("Auto react##" + self_id).c_str(), &react_on))

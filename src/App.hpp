@@ -28,8 +28,11 @@ namespace AvirA
 		void RefreshSenderChannels(size_t index);
 		void RefreshAllSenderChannels();
 		void SendSpam();
+		void SendSpamWith(const std::string& text);
+		void DeleteSenderMine();
 		void RefreshCleaner();
 		void DeleteCleaner();
+		void LoadDMs();
 
 		std::vector<S_Channel> FlatChannels();
 		std::vector<S_Channel> CleanerChannels();
@@ -49,6 +52,11 @@ namespace AvirA
 		char m_auto_reply_edit[512] = {};
 		char m_auto_emoji_edit[64] = {};
 		char m_auto_emoji_filter[64] = {};
+		char m_tpl_name[64] = {};
+		char m_auto_keyword_edit[128] = {};
+		std::vector<S_Channel> m_dm_channels;
+		bool m_dm_loaded = false;
+		bool m_dm_busy = false;
 
 		std::vector<std::string> m_files;
 		std::string m_login_error;
@@ -63,6 +71,12 @@ namespace AvirA
 		bool m_track_busy = false;
 		int m_auto_interval = 12;
 		int m_typing_interval = 8;
+		bool m_spam_mode = false;
+		int m_spam_count = 5;
+		int m_spam_delay = 1500;
+		bool m_spam_numbers = true;
+		int m_sender_del_count = 10;
+		int m_auto_del_index = 0;
 		bool m_auto_busy = false;
 		bool m_auto_emoji_busy = false;
 		int m_auto_emoji_guild = 0;
@@ -76,7 +90,11 @@ namespace AvirA
 
 		std::atomic<int> m_spam_done = 0;
 		std::atomic<int> m_spam_total = 0;
+		std::atomic<int> m_spam_delay_now = 0;
 		bool m_spam_busy = false;
+		bool m_sdel_busy = false;
+		std::atomic<int> m_sdel_done = 0;
+		std::atomic<int> m_sdel_total = 0;
 
 		std::atomic<int> m_clean_done = 0;
 		bool m_clean_busy = false;

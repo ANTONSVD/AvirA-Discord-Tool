@@ -244,67 +244,147 @@ namespace AvirA
 		}
 	}
 
-	bool C_Spammer::SendAll(const std::string& text, const std::vector<std::string>& files, std::string& error, std::atomic<int>* done, std::atomic<int>* total)
+	std::vector<S_SendTarget> C_Spammer::BuildSingleTargets()
 	{
-		if (!m_client || !m_client->HasToken())
-		{
-			error = "No token";
-			return false;
-		}
-		if (Trimmed(text).empty() && files.empty())
-		{
-			error = "Empty message";
-			return false;
-		}
-		std::vector<std::string> targets;
-		std::vector<std::string> names;
-		std::vector<std::string> guilds;
+		std::vector<S_SendTarget> out;
 		for (size_t i = 0; i < m_entries.size(); i++)
 		{
 			for (size_t k = 0; k < m_entries[i].m_channels.size() && k < m_entries[i].m_picked.size(); k++)
 			{
 				if (m_entries[i].m_picked[k])
 				{
-					targets.push_back(m_entries[i].m_channels[k].m_id);
-					names.push_back(m_entries[i].m_guild.m_name + " #" + m_entries[i].m_channels[k].m_name);
-					guilds.push_back(m_entries[i].m_guild.m_id);
+					S_SendTarget target;
+					target.m_client = m_client;
+					target.m_label = m_entries[i].m_guild.m_name + " #" + m_entries[i].m_channels[k].m_name;
+					target.m_channel = m_entries[i].m_channels[k].m_id;
+					target.m_guild = m_entries[i].m_guild.m_id;
+					out.push_back(target);
 				}
 			}
+		}
+		return out;
+	}
+
+	std::vector<S_SendTarget> C_Spammer::BuildMultiTargets(const std::vector<C_DiscordClient*>& clients, const std::vector<std::string>& labels)
+	{
+		std::vector<S_SendTarget> out;
+		for (size_t c = 0; c < clients.size() && c < labels.size(); c++)
+		{
+			if (!clients[c])
+				continue;
+			for (size_t i = 0; i < m_entries.size(); i++)
+			{
+				for (size_t k = 0; k < m_entries[i].m_channels.size() && k < m_entries[i].m_picked.size(); k++)
+				{
+				if (m_entries[i].m_picked[k])
+				{
+					S_SendTarget target;
+					target.m_client = clients[c];
+					target.m_label = labels[c] + " @ " + m_entries[i].m_guild.m_name + " #" + m_entries[i].m_channels[k].m_name;
+					target.m_channel = m_entries[i].m_channels[k].m_id;
+					target.m_guild = m_entries[i].m_guild.m_id;
+					out.push_back(target);
+				}
+				}
+			}
+		}
+		return out;
+	}
+
+	static bool Has429(const std::string& error)
+	{
+		return error.find("429") != std::string::npos;
+	}
+
+	static void SleepCancel(int millis, std::atomic<bool>* cancel)
+	{
+		for (int left = millis; left > 0; left -= 100)
+		{
+			if (cancel && *cancel)
+				break;
+			std::this_thread::sleep_for(std::chrono::milliseconds(left > 100 ? 100 : left));
+		}
+	}
+
+	bool C_Spammer::SendTargets(const std::vector<S_SendTarget>& targets, const std::string& text, const std::vector<std::string>& files, const S_SendOptions& options, std::string& error, std::atomic<int>* done, std::atomic<int>* total)
+	{
+		if (Trimmed(text).empty() && files.empty())
+		{
+			error = "Empty message";
+			return false;
 		}
 		if (targets.empty())
 		{
 			error = "Pick channels";
 			return false;
 		}
+		int repeat = options.m_repeat < 1 ? 1 : options.m_repeat;
+		if (repeat > 100)
+			repeat = 100;
+		int base = options.m_delay_ms < 200 ? 200 : options.m_delay_ms;
+		if (base > 30000)
+			base = 30000;
 		m_sending = true;
 		m_cancel = false;
 		if (total)
-			*total = (int)targets.size();
+			*total = (int)(targets.size() * (size_t)repeat);
 		if (done)
 			*done = 0;
+		if (options.m_delay_view)
+			*options.m_delay_view = base;
+		int delay = base;
 		int failed = 0;
 		int sent = 0;
+		u64 counter = 1;
 		std::string first_error;
-		for (size_t i = 0; i < targets.size(); i++)
+		for (int r = 0; r < repeat; r++)
 		{
+			for (size_t i = 0; i < targets.size(); i++)
+			{
+				if (m_cancel)
+					break;
+				std::string message = text;
+				if (options.m_numbers)
+					message += "\n||" + FormatU64(counter++) + "||";
+				std::string item_error;
+				bool ok = targets[i].m_client && targets[i].m_client->HasToken() && targets[i].m_client->SendFiles(targets[i].m_channel, message, files, item_error);
+				if (!targets[i].m_guild.empty())
+				{
+					S_GuildEntry* entry = FindEntry(targets[i].m_guild);
+					if (entry)
+						entry->m_last_send = ok ? "ok" : item_error;
+				}
+				if (!ok)
+				{
+					failed++;
+					if (first_error.empty())
+						first_error = targets[i].m_label + ": " + item_error;
+					if (Has429(item_error))
+					{
+						delay += 2000;
+						if (delay > 30000)
+							delay = 30000;
+					}
+				}
+				else
+				{
+					sent++;
+					if (delay > base)
+					{
+						delay -= 100;
+						if (delay < base)
+							delay = base;
+					}
+				}
+				if (options.m_delay_view)
+					*options.m_delay_view = delay;
+				if (done)
+					(*done)++;
+				if (r != repeat - 1 || i + 1 != targets.size())
+					SleepCancel(delay, &m_cancel);
+			}
 			if (m_cancel)
 				break;
-			std::string item_error;
-			bool ok = m_client->SendFiles(targets[i], text, files, item_error);
-			S_GuildEntry* entry = FindEntry(guilds[i]);
-			if (entry)
-				entry->m_last_send = ok ? "ok" : item_error;
-			if (!ok)
-			{
-				failed++;
-				if (first_error.empty())
-					first_error = names[i] + ": " + item_error;
-			}
-			else
-				sent++;
-			if (done)
-				(*done)++;
-			std::this_thread::sleep_for(std::chrono::milliseconds(900));
 		}
 		m_sending = false;
 		if (m_cancel)
@@ -312,7 +392,7 @@ namespace AvirA
 			error = "Cancelled, sent " + FormatI32(sent);
 			return false;
 		}
-		if (failed == (int)targets.size())
+		if (sent == 0)
 		{
 			error = first_error.empty() ? "Send failed" : first_error;
 			return false;
@@ -324,6 +404,18 @@ namespace AvirA
 		}
 		error = "Sent " + FormatI32(sent);
 		return true;
+	}
+
+	bool C_Spammer::SendAll(const std::string& text, const std::vector<std::string>& files, std::string& error, std::atomic<int>* done, std::atomic<int>* total)
+	{
+		if (!m_client || !m_client->HasToken())
+		{
+			error = "No token";
+			return false;
+		}
+		S_SendOptions options;
+		std::vector<S_SendTarget> targets = BuildSingleTargets();
+		return SendTargets(targets, text, files, options, error, done, total);
 	}
 
 	bool C_Spammer::Sending() const

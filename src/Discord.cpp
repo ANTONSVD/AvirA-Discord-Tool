@@ -234,6 +234,51 @@ namespace AvirA
 		return true;
 	}
 
+	bool C_DiscordClient::FetchDMs(std::vector<S_Channel>& out)
+	{
+		out.clear();
+		S_HttpResult result = m_http.Get("/users/@me/channels");
+		if (!result.m_ok)
+			return false;
+		C_Json root = C_Json::Parse(result.m_body);
+		if (root.m_type != E_JsonType::List)
+			return false;
+		for (size_t i = 0; i < root.m_list.size(); i++)
+		{
+			const C_Json& item = root.m_list[i];
+			int kind = (int)item.GetInt("type", 0);
+			if (kind != 1 && kind != 3)
+				continue;
+			S_Channel channel;
+			channel.m_id = item.GetText("id");
+			channel.m_guild = "dm";
+			channel.m_kind = kind;
+			channel.m_position = (int)i;
+			if (kind == 3)
+			{
+				channel.m_name = item.GetText("name");
+				if (channel.m_name.empty())
+					channel.m_name = "Group";
+			}
+			else
+			{
+				const C_Json* recipients = item.Find("recipients");
+				if (recipients && recipients->m_type == E_JsonType::List && !recipients->m_list.empty())
+				{
+					channel.m_name = recipients->m_list[0].GetText("username");
+					std::string global = recipients->m_list[0].GetText("global_name");
+					if (!global.empty() && global != channel.m_name)
+						channel.m_name += " (" + global + ")";
+				}
+				if (channel.m_name.empty())
+					channel.m_name = "DM";
+			}
+			if (!channel.m_id.empty())
+				out.push_back(channel);
+		}
+		return true;
+	}
+
 	bool C_DiscordClient::SendText(const std::string& channel, const std::string& text, std::string& error)
 	{
 		if (Trimmed(text).empty())
@@ -420,7 +465,7 @@ namespace AvirA
 		return true;
 	}
 
-	bool C_DiscordClient::ReplyText(const std::string& channel, const std::string& message, const std::string& text, std::string& error)
+	bool C_DiscordClient::ReplyText(const std::string& channel, const std::string& message, const std::string& text, std::string& error, std::string* out_id)
 	{
 		if (Trimmed(text).empty())
 		{
@@ -432,7 +477,11 @@ namespace AvirA
 		{
 			S_HttpResult result = m_http.PostJson("/channels/" + channel + "/messages", payload);
 			if (result.m_ok)
+			{
+				if (out_id)
+					*out_id = C_Json::Parse(result.m_body).GetText("id");
 				return true;
+			}
 			if (result.m_status == 429)
 			{
 				C_Json root = C_Json::Parse(result.m_body);

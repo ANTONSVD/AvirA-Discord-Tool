@@ -65,6 +65,20 @@ namespace AvirA
 			item.m_id = clean;
 			item.m_last = profile;
 			item.m_checked = NowSeconds();
+			if (!profile.m_avatar.empty())
+			{
+				S_AvatarHist first;
+				first.m_stamp = NowSeconds();
+				first.m_url = profile.m_avatar;
+				item.m_avatars.push_back(first);
+			}
+			if (!profile.m_banner.empty())
+			{
+				S_AvatarHist first;
+				first.m_stamp = NowSeconds();
+				first.m_url = profile.m_banner;
+				item.m_banners.push_back(first);
+			}
 			m_items.push_back(item);
 		}
 		{
@@ -79,6 +93,27 @@ namespace AvirA
 			}
 		}
 		return true;
+	}
+
+	void C_Tracker::Restore(const std::string& id)
+	{
+		std::string clean;
+		for (char c : id)
+		{
+			if (c >= '0' && c <= '9')
+				clean.push_back(c);
+		}
+		if (clean.size() < 10 || clean.size() > 22)
+			return;
+		std::lock_guard<std::mutex> guard(m_lock);
+		for (size_t i = 0; i < m_items.size(); i++)
+		{
+			if (m_items[i].m_id == clean)
+				return;
+		}
+		S_Tracked item;
+		item.m_id = clean;
+		m_items.push_back(item);
 	}
 
 	void C_Tracker::Remove(const std::string& id)
@@ -279,9 +314,31 @@ namespace AvirA
 		if (prev.m_global != next.m_global)
 			Emit(item, "global", "Display name: " + (prev.m_global.empty() ? "-" : prev.m_global) + " -> " + (next.m_global.empty() ? "-" : next.m_global));
 		if (prev.m_avatar != next.m_avatar)
+		{
 			Emit(item, "avatar", "Avatar changed");
+			if (!next.m_avatar.empty() && (item.m_avatars.empty() || item.m_avatars.back().m_url != next.m_avatar))
+			{
+				S_AvatarHist shot;
+				shot.m_stamp = NowSeconds();
+				shot.m_url = next.m_avatar;
+				item.m_avatars.push_back(shot);
+				if (item.m_avatars.size() > 20)
+					item.m_avatars.erase(item.m_avatars.begin());
+			}
+		}
 		if (prev.m_banner != next.m_banner)
+		{
 			Emit(item, "banner", "Banner changed");
+			if (!next.m_banner.empty() && (item.m_banners.empty() || item.m_banners.back().m_url != next.m_banner))
+			{
+				S_AvatarHist shot;
+				shot.m_stamp = NowSeconds();
+				shot.m_url = next.m_banner;
+				item.m_banners.push_back(shot);
+				if (item.m_banners.size() > 20)
+					item.m_banners.erase(item.m_banners.begin());
+			}
+		}
 		if (prev.m_bio != next.m_bio)
 		{
 			std::string from = prev.m_bio.empty() ? "-" : prev.m_bio;
