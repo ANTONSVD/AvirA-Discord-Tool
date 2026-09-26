@@ -1006,16 +1006,52 @@ namespace AvirA
 		ImGui::BeginChild("templates", ImVec2(0, 130), true);
 		ImGui::Text("Templates");
 		ImGui::PushItemWidth(160);
-		ImGui::InputTextWithHint("##tplname", "Name", m_tpl_name, sizeof(m_tpl_name));
+		ImGui::InputTextWithHint("##tplname", "Name, empty for auto", m_tpl_name, sizeof(m_tpl_name));
 		ImGui::PopItemWidth();
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Save current text"))
 		{
-			if (m_store.AddTemplate(m_tpl_name, m_message_edit))
+			m_tpl_error.clear();
+			if (Trimmed(m_message_edit).empty())
+				m_tpl_error = "Empty text";
+			else
 			{
-				memset(m_tpl_name, 0, sizeof(m_tpl_name));
-				m_store_dirty = true;
+				std::string name = Trimmed(m_tpl_name);
+				if (name.empty())
+				{
+					auto existing = m_store.Templates();
+					for (int n = 1; n < 1000; n++)
+					{
+						std::string candidate = "Template " + FormatI32(n);
+						bool taken = false;
+						for (size_t k = 0; k < existing.size(); k++)
+						{
+							if (existing[k].m_name == candidate)
+							{
+								taken = true;
+								break;
+							}
+						}
+						if (!taken)
+						{
+							name = candidate;
+							break;
+						}
+					}
+				}
+				if (m_store.AddTemplate(name, m_message_edit))
+				{
+					memset(m_tpl_name, 0, sizeof(m_tpl_name));
+					m_store_dirty = true;
+				}
+				else
+					m_tpl_error = "Bad name or duplicate";
 			}
+		}
+		if (!m_tpl_error.empty())
+		{
+			ImGui::SameLine();
+			ImGui::TextColored(ImVec4(1, 0.45f, 0.45f, 1), "%s", m_tpl_error.c_str());
 		}
 		auto templates = m_store.Templates();
 		if (templates.empty())

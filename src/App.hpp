@@ -64,6 +64,7 @@ namespace AvirA
 		std::string m_spam_error;
 		std::string m_clean_error;
 		std::string m_auto_error;
+		std::string m_tpl_error;
 		std::string m_log_tab;
 		std::string m_auto_tab;
 
