@@ -37,6 +37,16 @@ namespace AvirA
 			text += items[i]->m_id;
 		}
 		text += "\n";
+		text += "[sender]\n";
+		auto favorites = m_spammer.Favorites();
+		text += "favorites=";
+		for (size_t i = 0; i < favorites.size(); i++)
+		{
+			if (i)
+				text += ",";
+			text += favorites[i];
+		}
+		text += "\n";
 		FILE* file = nullptr;
 		if (fopen_s(&file, path.c_str(), "wb") == 0 && file)
 		{
@@ -64,6 +74,7 @@ namespace AvirA
 		std::fclose(file);
 		size_t at = 0;
 		std::vector<std::string> watched;
+		std::vector<std::string> favorites;
 		while (at < text.size())
 		{
 			size_t end = text.find('\n', at);
@@ -87,10 +98,27 @@ namespace AvirA
 					p = comma + 1;
 				}
 			}
+			if (line.rfind("favorites=", 0) == 0)
+			{
+				std::string list = line.substr(10);
+				size_t p = 0;
+				while (p < list.size())
+				{
+					size_t comma = list.find(',', p);
+					std::string id = Trimmed(list.substr(p, comma == std::string::npos ? std::string::npos : comma - p));
+					if (!id.empty())
+						favorites.push_back(id);
+					if (comma == std::string::npos)
+						break;
+					p = comma + 1;
+				}
+			}
 			if (end == std::string::npos)
 				break;
 			at = end + 1;
 		}
+		m_pending_favorites = favorites;
+		m_spammer.ApplyFavorites(favorites);
 		for (size_t i = 0; i < watched.size(); i++)
 		{
 			std::string error;
@@ -149,6 +177,11 @@ namespace AvirA
 		m_me_name = name;
 		m_me_id = id;
 		m_cleaner.SetMe(id);
+	}
+
+	std::vector<std::string> C_Store::PendingFavorites() const
+	{
+		return m_pending_favorites;
 	}
 
 	std::string C_Store::ConfigPath() const

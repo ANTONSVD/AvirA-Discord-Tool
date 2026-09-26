@@ -132,6 +132,15 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmd, int show)
 	ImGuiIO& io = ImGui::GetIO();
 	io.IniFilename = nullptr;
 	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+	io.Fonts->AddFontDefault();
+	{
+		ImFontConfig merge;
+		merge.MergeMode = true;
+		merge.PixelSnapH = true;
+		static const ImWchar cyrillic[] = { 0x0400, 0x04FF, 0 };
+		io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Tahoma.ttf", 13.0f, &merge, cyrillic);
+		io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Consola.ttf", 13.0f, &merge, cyrillic);
+	}
 	C_Theme::Apply();
 	ImGui_ImplWin32_Init(window);
 	ImGui_ImplDX11_Init(m_frame.m_device, m_frame.m_context);

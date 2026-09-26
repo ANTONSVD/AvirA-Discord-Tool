@@ -33,6 +33,8 @@ namespace AvirA
 					entry.m_picked = m_entries[k].m_picked;
 					entry.m_loaded = m_entries[k].m_loaded;
 					entry.m_open = m_entries[k].m_open;
+					entry.m_favorite = m_entries[k].m_favorite;
+					entry.m_last_send = m_entries[k].m_last_send;
 					break;
 				}
 			}
@@ -41,6 +43,11 @@ namespace AvirA
 			kept.push_back(entry);
 		}
 		m_entries = kept;
+		std::stable_sort(m_entries.begin(), m_entries.end(), [](const S_GuildEntry& a, const S_GuildEntry& b) {
+			if (a.m_favorite != b.m_favorite)
+				return a.m_favorite > b.m_favorite;
+			return a.m_guild.m_name < b.m_guild.m_name;
+		});
 		return true;
 	}
 
@@ -51,16 +58,22 @@ namespace AvirA
 			error = "No token";
 			return false;
 		}
+		std::string id = entry.m_guild.m_id;
 		std::vector<S_Channel> channels;
-		if (!m_client->FetchChannels(entry.m_guild.m_id, channels))
+		if (!m_client->FetchChannels(id, channels))
 		{
+			for (size_t i = 0; i < m_entries.size(); i++)
+			{
+				if (m_entries[i].m_guild.m_id == id)
+					m_entries[i].m_error = "No access";
+			}
 			entry.m_error = "No access";
 			error = entry.m_error;
 			return false;
 		}
 		std::vector<bool> picked;
 		picked.assign(channels.size(), false);
-		for (size_t i = 0; i < channels.size() && i < entry.m_channels.size(); i++)
+		for (size_t i = 0; i < channels.size(); i++)
 		{
 			for (size_t k = 0; k < entry.m_channels.size(); k++)
 			{
@@ -68,11 +81,114 @@ namespace AvirA
 					picked[i] = entry.m_picked[k];
 			}
 		}
+		for (size_t i = 0; i < m_entries.size(); i++)
+		{
+			if (m_entries[i].m_guild.m_id == id)
+			{
+				m_entries[i].m_channels = channels;
+				m_entries[i].m_picked = picked;
+				m_entries[i].m_loaded = true;
+				m_entries[i].m_error.clear();
+				break;
+			}
+		}
 		entry.m_channels = channels;
 		entry.m_picked = picked;
 		entry.m_loaded = true;
 		entry.m_error.clear();
 		return true;
+	}
+
+	bool C_Spammer::RefreshAllChannels(std::string& error, std::atomic<int>* done)
+	{
+		if (!m_client || !m_client->HasToken())
+		{
+			error = "No token";
+			return false;
+		}
+		int failed = 0;
+		for (size_t i = 0; i < m_entries.size(); i++)
+		{
+			std::string item_error;
+			if (!RefreshChannels(m_entries[i], item_error))
+				failed++;
+			if (done)
+				(*done)++;
+			std::this_thread::sleep_for(std::chrono::milliseconds(300));
+		}
+		if (failed == (int)m_entries.size() && !m_entries.empty())
+		{
+			error = "No channels loaded";
+			return false;
+		}
+		return true;
+	}
+
+	void C_Spammer::SetFavorite(const std::string& id, bool value)
+	{
+		for (size_t i = 0; i < m_entries.size(); i++)
+		{
+			if (m_entries[i].m_guild.m_id == id)
+				m_entries[i].m_favorite = value;
+		}
+		std::stable_sort(m_entries.begin(), m_entries.end(), [](const S_GuildEntry& a, const S_GuildEntry& b) {
+			if (a.m_favorite != b.m_favorite)
+				return a.m_favorite > b.m_favorite;
+			return a.m_guild.m_name < b.m_guild.m_name;
+		});
+	}
+
+	bool C_Spammer::Favorite(const std::string& id) const
+	{
+		for (size_t i = 0; i < m_entries.size(); i++)
+		{
+			if (m_entries[i].m_guild.m_id == id)
+				return m_entries[i].m_favorite;
+		}
+		return false;
+	}
+
+	std::vector<std::string> C_Spammer::Favorites() const
+	{
+		std::vector<std::string> out;
+		for (size_t i = 0; i < m_entries.size(); i++)
+		{
+			if (m_entries[i].m_favorite)
+				out.push_back(m_entries[i].m_guild.m_id);
+		}
+		return out;
+	}
+
+	void C_Spammer::ApplyFavorites(const std::vector<std::string>& ids)
+	{
+		for (size_t i = 0; i < m_entries.size(); i++)
+		{
+			bool hit = false;
+			for (size_t k = 0; k < ids.size(); k++)
+			{
+				if (m_entries[i].m_guild.m_id == ids[k])
+				{
+					hit = true;
+					break;
+				}
+			}
+			m_entries[i].m_favorite = hit;
+		}
+		std::stable_sort(m_entries.begin(), m_entries.end(), [](const S_GuildEntry& a, const S_GuildEntry& b) {
+			if (a.m_favorite != b.m_favorite)
+				return a.m_favorite > b.m_favorite;
+			return a.m_guild.m_name < b.m_guild.m_name;
+		});
+	}
+
+	S_GuildEntry* C_Spammer::FindEntry(const std::string& id)
+	{
+		for (size_t i = 0; i < m_entries.size(); i++)
+		{
+			if (m_entries[i].m_guild.m_id == id)
+				return &m_entries[i];
+		}
+		return nullptr;
 	}
 
 	std::vector<S_GuildEntry>& C_Spammer::Entries()
@@ -117,6 +233,7 @@ namespace AvirA
 		}
 		std::vector<std::string> targets;
 		std::vector<std::string> names;
+		std::vector<std::string> guilds;
 		for (size_t i = 0; i < m_entries.size(); i++)
 		{
 			for (size_t k = 0; k < m_entries[i].m_channels.size() && k < m_entries[i].m_picked.size(); k++)
@@ -125,6 +242,7 @@ namespace AvirA
 				{
 					targets.push_back(m_entries[i].m_channels[k].m_id);
 					names.push_back(m_entries[i].m_guild.m_name + " #" + m_entries[i].m_channels[k].m_name);
+					guilds.push_back(m_entries[i].m_guild.m_id);
 				}
 			}
 		}
@@ -140,6 +258,7 @@ namespace AvirA
 		if (done)
 			*done = 0;
 		int failed = 0;
+		int sent = 0;
 		std::string first_error;
 		for (size_t i = 0; i < targets.size(); i++)
 		{
@@ -147,20 +266,25 @@ namespace AvirA
 				break;
 			std::string item_error;
 			bool ok = m_client->SendFiles(targets[i], text, files, item_error);
+			S_GuildEntry* entry = FindEntry(guilds[i]);
+			if (entry)
+				entry->m_last_send = ok ? "ok" : item_error;
 			if (!ok)
 			{
 				failed++;
 				if (first_error.empty())
 					first_error = names[i] + ": " + item_error;
 			}
+			else
+				sent++;
 			if (done)
 				(*done)++;
-			std::this_thread::sleep_for(std::chrono::milliseconds(650));
+			std::this_thread::sleep_for(std::chrono::milliseconds(900));
 		}
 		m_sending = false;
 		if (m_cancel)
 		{
-			error = "Cancelled";
+			error = "Cancelled, sent " + FormatI32(sent);
 			return false;
 		}
 		if (failed == (int)targets.size())
@@ -169,7 +293,11 @@ namespace AvirA
 			return false;
 		}
 		if (failed > 0)
-			error = "Sent with fails: " + first_error;
+		{
+			error = "Sent " + FormatI32(sent) + ", fails: " + first_error;
+			return true;
+		}
+		error = "Sent " + FormatI32(sent);
 		return true;
 	}
 

@@ -22,11 +22,13 @@ namespace AvirA
 		void AddTracked();
 		void RefreshSender();
 		void RefreshSenderChannels(size_t index);
+		void RefreshAllSenderChannels();
 		void SendSpam();
 		void RefreshCleaner();
 		void DeleteCleaner();
 
 		std::vector<S_Channel> FlatChannels();
+		std::vector<S_Channel> CleanerChannels();
 
 		C_Store m_store;
 		int m_tab = 0;
@@ -57,7 +59,9 @@ namespace AvirA
 		std::atomic<int> m_clean_done = 0;
 		bool m_clean_busy = false;
 		bool m_clean_deleting = false;
+		bool m_sender_loading_all = false;
 		S_CleanFilter m_filter;
+		int m_clean_guild_index = 0;
 		int m_clean_channel_index = 0;
 		int m_clean_hours_index = 3;
 	};

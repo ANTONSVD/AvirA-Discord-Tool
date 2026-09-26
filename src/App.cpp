@@ -92,7 +92,13 @@ namespace AvirA
 		m_spam_error.clear();
 		std::string error;
 		if (!m_store.Spammer()->RefreshGuilds(error))
+		{
 			m_spam_error = error;
+			return;
+		}
+		m_store.Spammer()->ApplyFavorites(m_store.PendingFavorites());
+		if (m_store.Spammer()->Entries().empty())
+			m_spam_error = "No servers";
 	}
 
 	void C_App::RefreshSenderChannels(size_t index)
@@ -103,6 +109,27 @@ namespace AvirA
 		std::string error;
 		if (!m_store.Spammer()->RefreshChannels(entries[index], error))
 			m_spam_error = error;
+		else if (entries[index].m_channels.empty())
+			m_spam_error = entries[index].m_guild.m_name + ": no text channels";
+	}
+
+	void C_App::RefreshAllSenderChannels()
+	{
+		if (m_sender_loading_all)
+			return;
+		m_sender_loading_all = true;
+		m_spam_error = "Loading channels...";
+		C_Spammer* spammer = m_store.Spammer();
+		std::thread([this, spammer]() {
+			std::string error;
+			std::atomic<int> done(0);
+			spammer->RefreshAllChannels(error, &done);
+			size_t total = 0;
+			for (size_t i = 0; i < spammer->Entries().size(); i++)
+				total += spammer->Entries()[i].m_channels.size();
+			m_spam_error = error.empty() ? ("Channels: " + FormatU64(total)) : error;
+			m_sender_loading_all = false;
+		}).detach();
 	}
 
 	void C_App::SendSpam()
@@ -118,12 +145,31 @@ namespace AvirA
 		C_Spammer* spammer = m_store.Spammer();
 		std::thread([this, spammer, text, files]() {
 			std::string error;
-			bool ok = spammer->SendAll(text, files, error, &m_spam_done, &m_spam_total);
+			spammer->SendAll(text, files, error, &m_spam_done, &m_spam_total);
 			m_spam_error = error;
-			if (ok && m_spam_error.rfind("Sent with fails", 0) != 0)
-				m_spam_error = "Done";
 			m_spam_busy = false;
 		}).detach();
+	}
+
+	std::vector<S_Channel> C_App::CleanerChannels()
+	{
+		std::vector<S_Channel> out;
+		auto& entries = m_store.Spammer()->Entries();
+		if (entries.empty())
+			return out;
+		if (m_clean_guild_index <= 0)
+		{
+			for (size_t i = 0; i < entries.size(); i++)
+			{
+				for (size_t k = 0; k < entries[i].m_channels.size(); k++)
+					out.push_back(entries[i].m_channels[k]);
+			}
+			return out;
+		}
+		size_t index = (size_t)(m_clean_guild_index - 1);
+		if (index >= entries.size())
+			return out;
+		return entries[index].m_channels;
 	}
 
 	void C_App::RefreshCleaner()
@@ -131,25 +177,83 @@ namespace AvirA
 		if (m_clean_busy)
 			return;
 		m_clean_error.clear();
+		if (!m_store.Logged())
+		{
+			m_clean_error = "Login first";
+			return;
+		}
 		m_clean_busy = true;
 		m_clean_done = 0;
-		auto channels = FlatChannels();
-		if (channels.empty())
-		{
-			RefreshSender();
-			channels = FlatChannels();
-		}
-		S_CleanFilter filter = m_filter;
-		if (m_clean_channel_index > 0 && (size_t)(m_clean_channel_index - 1) < channels.size())
-			filter.m_channel = channels[m_clean_channel_index - 1].m_id;
-		else
-			filter.m_channel = "all";
+		C_Spammer* spammer = m_store.Spammer();
 		C_Cleaner* cleaner = m_store.Cleaner();
-		std::thread([this, cleaner, channels, filter]() {
+		S_CleanFilter filter = m_filter;
+		int guild_index = m_clean_guild_index;
+		int channel_index = m_clean_channel_index;
+		std::thread([this, spammer, cleaner, filter, guild_index, channel_index]() {
 			std::string error;
-			cleaner->Refresh(channels, filter, error, &m_clean_done);
-			m_clean_error = error;
-			if (m_clean_error.empty())
+			if (spammer->Entries().empty())
+			{
+				if (!spammer->RefreshGuilds(error))
+				{
+					m_clean_error = error;
+					m_clean_busy = false;
+					return;
+				}
+				spammer->ApplyFavorites(m_store.PendingFavorites());
+			}
+			std::vector<std::string> guild_ids;
+			if (guild_index <= 0)
+			{
+				for (size_t i = 0; i < spammer->Entries().size(); i++)
+					guild_ids.push_back(spammer->Entries()[i].m_guild.m_id);
+			}
+			else
+			{
+				size_t index = (size_t)(guild_index - 1);
+				if (index < spammer->Entries().size())
+					guild_ids.push_back(spammer->Entries()[index].m_guild.m_id);
+			}
+			for (size_t i = 0; i < guild_ids.size(); i++)
+			{
+				S_GuildEntry* entry = spammer->FindEntry(guild_ids[i]);
+				if (entry && !entry->m_loaded)
+				{
+					std::string channel_error;
+					spammer->RefreshChannels(*entry, channel_error);
+					std::this_thread::sleep_for(std::chrono::milliseconds(250));
+				}
+			}
+			std::vector<S_Channel> channels;
+			if (guild_index <= 0)
+			{
+				for (size_t i = 0; i < spammer->Entries().size(); i++)
+				{
+					for (size_t k = 0; k < spammer->Entries()[i].m_channels.size(); k++)
+						channels.push_back(spammer->Entries()[i].m_channels[k]);
+				}
+			}
+			else
+			{
+				size_t index = (size_t)(guild_index - 1);
+				if (index < spammer->Entries().size())
+					channels = spammer->Entries()[index].m_channels;
+			}
+			if (channels.empty())
+			{
+				m_clean_error = "No channels, load them in Sender";
+				m_clean_busy = false;
+				return;
+			}
+			S_CleanFilter use = filter;
+			if (channel_index > 0 && (size_t)(channel_index - 1) < channels.size())
+				use.m_channel = channels[channel_index - 1].m_id;
+			else
+				use.m_channel = "all";
+			std::string refresh_error;
+			cleaner->Refresh(channels, use, refresh_error, &m_clean_done);
+			if (!refresh_error.empty())
+				m_clean_error = refresh_error;
+			else
 				m_clean_error = "Found " + FormatU64(cleaner->Items().size());
 			m_clean_busy = false;
 		}).detach();
@@ -409,11 +513,23 @@ namespace AvirA
 		}
 		ImGui::EndChild();
 
-		ImGui::BeginChild("send_list", ImVec2(0, 280), true);
+		ImGui::BeginChild("send_list", ImVec2(0, 300), true);
 		ImGui::Text("Servers and channels");
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Reload servers"))
 			RefreshSender();
+		ImGui::SameLine();
+		if (m_sender_loading_all)
+		{
+			ImGui::BeginDisabled();
+			ImGui::SmallButton("Loading...");
+			ImGui::EndDisabled();
+		}
+		else
+		{
+			if (ImGui::SmallButton("Load all channels"))
+				RefreshAllSenderChannels();
+		}
 		auto& entries = m_store.Spammer()->Entries();
 		if (entries.empty())
 		{
@@ -424,30 +540,39 @@ namespace AvirA
 		for (size_t i = 0; i < entries.size(); i++)
 		{
 			S_GuildEntry& entry = entries[i];
-			bool open = ImGui::CollapsingHeader((entry.m_guild.m_name + "##g" + entry.m_guild.m_id).c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+			std::string star = entry.m_favorite ? "[*] " : "[ ] ";
+			std::string title = star + entry.m_guild.m_name;
+			bool open = ImGui::CollapsingHeader((title + "##g" + entry.m_guild.m_id).c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+			ImGui::SameLine(ImGui::GetWindowWidth() - 90);
+			bool fav = entry.m_favorite;
+			if (ImGui::SmallButton(((fav ? "Unfav##" : "Fav##") + entry.m_guild.m_id).c_str()))
+			{
+				m_store.Spammer()->SetFavorite(entry.m_guild.m_id, !fav);
+				m_store.Save();
+			}
 			if (!open)
 				continue;
 			ImGui::Indent(8);
+			if (!entry.m_error.empty())
+				ImGui::TextDisabled("%s", entry.m_error.c_str());
+			if (!entry.m_last_send.empty())
+				ImGui::TextDisabled("last: %s", entry.m_last_send.c_str());
 			if (!entry.m_loaded)
 			{
 				if (ImGui::SmallButton(("Load channels##" + entry.m_guild.m_id).c_str()))
 					RefreshSenderChannels(i);
-				if (!entry.m_error.empty())
-				{
-					ImGui::SameLine();
-					ImGui::TextDisabled("%s", entry.m_error.c_str());
-				}
 			}
 			else
 			{
 				for (size_t k = 0; k < entry.m_channels.size(); k++)
 				{
 					bool picked = k < entry.m_picked.size() ? entry.m_picked[k] : false;
-					if (ImGui::Checkbox(("#" + entry.m_channels[k].m_name + "##" + entry.m_channels[k].m_id).c_str(), &picked))
+					std::string label = "#" + entry.m_channels[k].m_name + " (" + C_DiscordClient::KindLabel(entry.m_channels[k].m_kind) + ")##" + entry.m_channels[k].m_id;
+					if (ImGui::Checkbox(label.c_str(), &picked))
 						entry.m_picked[k] = picked;
 				}
 				if (entry.m_channels.empty())
-					ImGui::TextDisabled("No text channels.");
+					ImGui::TextDisabled("No text channels, threads included.");
 			}
 			ImGui::Unindent(8);
 		}
@@ -456,12 +581,27 @@ namespace AvirA
 
 	void C_App::DrawCleaner()
 	{
-		auto channels = FlatChannels();
+		auto& entries = m_store.Spammer()->Entries();
+		std::vector<S_Channel> channels = CleanerChannels();
 		const char* hours_labels[] = { "Any time", "Last hour", "Last 6 hours", "Last day", "Last week", "Last month" };
 		int hours_values[] = { 0, 1, 6, 24, 168, 720 };
-		ImGui::BeginChild("clean_filter", ImVec2(0, 150), true);
+		ImGui::BeginChild("clean_filter", ImVec2(0, 180), true);
 		ImGui::Text("Cleaner");
-		ImGui::TextDisabled("Finds your messages and deletes them");
+		ImGui::TextDisabled("Own server and channel picks, independent from Sender");
+		std::vector<const char*> guild_names;
+		guild_names.push_back("All servers");
+		std::vector<std::string> guild_keep;
+		for (size_t i = 0; i < entries.size(); i++)
+			guild_keep.push_back(entries[i].m_guild.m_name);
+		for (size_t i = 0; i < guild_keep.size(); i++)
+			guild_names.push_back(guild_keep[i].c_str());
+		if (m_clean_guild_index >= (int)guild_names.size())
+			m_clean_guild_index = 0;
+		ImGui::PushItemWidth(220);
+		if (ImGui::Combo("Server", &m_clean_guild_index, guild_names.data(), (int)guild_names.size()))
+			m_clean_channel_index = 0;
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
 		std::vector<const char*> names;
 		names.push_back("All channels");
 		std::vector<std::string> keep;
@@ -475,7 +615,6 @@ namespace AvirA
 		ImGui::PushItemWidth(220);
 		ImGui::Combo("Channel", &m_clean_channel_index, names.data(), (int)names.size());
 		ImGui::PopItemWidth();
-		ImGui::SameLine();
 		ImGui::PushItemWidth(150);
 		ImGui::Combo("Age", &m_clean_hours_index, hours_labels, 6);
 		ImGui::PopItemWidth();
@@ -537,7 +676,14 @@ namespace AvirA
 		auto& items = m_store.Cleaner()->Items();
 		if (items.empty())
 		{
-			ImGui::TextDisabled("Empty. Pick servers above in Sender, then Scan mine.");
+			ImGui::TextDisabled("Empty. Pick a server above, then Scan mine. Channels load automatically.");
+			if (m_clean_busy)
+			{
+				ImGui::SameLine();
+				C_Theme::Spinner("##cleanload", 14, 2.0f);
+				ImGui::SameLine();
+				ImGui::TextDisabled("scanning %d", m_clean_done.load());
+			}
 			ImGui::EndChild();
 			return;
 		}

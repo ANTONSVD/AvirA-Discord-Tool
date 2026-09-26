@@ -26,6 +26,7 @@ namespace AvirA
 		void SetMe(const std::string& name, const std::string& id);
 
 		std::string ConfigPath() const;
+		std::vector<std::string> PendingFavorites() const;
 
 	private:
 		C_DiscordClient m_client;
@@ -35,5 +36,6 @@ namespace AvirA
 		std::string m_token;
 		std::string m_me_name;
 		std::string m_me_id;
+		std::vector<std::string> m_pending_favorites;
 	};
 }

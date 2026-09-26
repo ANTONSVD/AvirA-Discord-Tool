@@ -69,6 +69,10 @@ namespace AvirA
 		bool FetchUser(const std::string& id, S_Profile& out);
 		bool FetchGuilds(std::vector<S_Guild>& out);
 		bool FetchChannels(const std::string& guild, std::vector<S_Channel>& out);
+		bool FetchThreads(const std::string& guild, std::vector<S_Channel>& out);
+		static bool SendableKind(int kind);
+		static std::string KindLabel(int kind);
+		static std::string ShortError(const S_HttpResult& result);
 		bool SendText(const std::string& channel, const std::string& text, std::string& error);
 		bool SendFiles(const std::string& channel, const std::string& text, const std::vector<std::string>& paths, std::string& error);
 		bool FetchMessages(const std::string& channel, int limit, const std::string& before, std::vector<C_Json>& out);

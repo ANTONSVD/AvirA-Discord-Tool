@@ -81,6 +81,9 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ResourceCompile Include="app.rc" />
+  </ItemGroup>
+  <ItemGroup>
     <ClCompile Include="src\App.cpp" />
     <ClCompile Include="src\Cleaner.cpp" />
     <ClCompile Include="src\Discord.cpp" />
@@ -98,6 +101,9 @@
     <ClCompile Include="External\imgui\imgui_widgets.cpp" />
     <ClCompile Include="External\imgui\backends\imgui_impl_win32.cpp" />
     <ClCompile Include="External\imgui\backends\imgui_impl_dx11.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="app.ico" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\App.hpp" />

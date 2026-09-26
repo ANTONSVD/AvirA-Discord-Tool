@@ -1,4 +1,5 @@
 #include "Discord.hpp"
+#include <Windows.h>
 
 namespace AvirA
 {
@@ -103,6 +104,101 @@ namespace AvirA
 		return true;
 	}
 
+	bool C_DiscordClient::SendableKind(int kind)
+	{
+		return kind == 0 || kind == 5 || kind == 10 || kind == 11 || kind == 12;
+	}
+
+	std::string C_DiscordClient::KindLabel(int kind)
+	{
+		if (kind == 5)
+			return "announce";
+		if (kind == 10 || kind == 11 || kind == 12)
+			return "thread";
+		return "text";
+	}
+
+	std::string C_DiscordClient::ShortError(const S_HttpResult& result)
+	{
+		std::string raw = result.m_body;
+		if (!raw.empty())
+		{
+			C_Json root = C_Json::Parse(raw);
+			std::string message = root.GetText("message");
+			if (!message.empty())
+			{
+				if (result.m_status == 429)
+				{
+					i64 wait = (i64)(root.GetInt("retry_after", 0));
+					if (wait <= 0)
+					{
+						double raw_wait = 0;
+						const C_Json* found = root.Find("retry_after");
+						if (found && found->m_type == E_JsonType::Number)
+							raw_wait = found->m_number;
+						wait = (i64)(raw_wait * 1000);
+					}
+					if (wait > 0 && wait < 60000)
+						message += " wait " + FormatI64(wait) + "ms";
+				}
+				if (message.size() > 220)
+					message = message.substr(0, 220);
+				return FormatI32(result.m_status) + " " + message;
+			}
+		}
+		std::string fallback = result.m_error.empty() ? result.m_body : result.m_error;
+		if (fallback.empty())
+			fallback = "HTTP " + FormatI32(result.m_status);
+		if (fallback.size() > 220)
+			fallback = fallback.substr(0, 220);
+		return fallback;
+	}
+
+	static void AppendThreadList(const C_Json& root, const std::string& guild, std::vector<S_Channel>& out)
+	{
+		const C_Json* threads = root.Find("threads");
+		if (!threads || threads->m_type != E_JsonType::List)
+			return;
+		for (size_t i = 0; i < threads->m_list.size(); i++)
+		{
+			const C_Json& item = threads->m_list[i];
+			S_Channel channel;
+			channel.m_id = item.GetText("id");
+			channel.m_guild = guild;
+			channel.m_name = item.GetText("name");
+			if (channel.m_name.empty())
+				channel.m_name = "thread-" + channel.m_id.substr(0, 6);
+			channel.m_kind = (int)item.GetInt("type", 11);
+			if (!C_DiscordClient::SendableKind(channel.m_kind))
+				channel.m_kind = 11;
+			channel.m_position = 10000 + (int)i;
+			if (channel.m_id.empty())
+				continue;
+			bool known = false;
+			for (size_t k = 0; k < out.size(); k++)
+			{
+				if (out[k].m_id == channel.m_id)
+				{
+					known = true;
+					break;
+				}
+			}
+			if (!known)
+				out.push_back(channel);
+		}
+	}
+
+	bool C_DiscordClient::FetchThreads(const std::string& guild, std::vector<S_Channel>& out)
+	{
+		S_HttpResult result = m_http.Get("/guilds/" + guild + "/threads/active");
+		if (result.m_ok)
+		{
+			C_Json root = C_Json::Parse(result.m_body);
+			AppendThreadList(root, guild, out);
+		}
+		return true;
+	}
+
 	bool C_DiscordClient::FetchChannels(const std::string& guild, std::vector<S_Channel>& out)
 	{
 		out.clear();
@@ -116,17 +212,20 @@ namespace AvirA
 		{
 			const C_Json& item = root.m_list[i];
 			int kind = (int)item.GetInt("type", 0);
-			if (kind != 0 && kind != 5)
+			if (!SendableKind(kind))
 				continue;
 			S_Channel channel;
 			channel.m_id = item.GetText("id");
 			channel.m_guild = guild;
 			channel.m_name = item.GetText("name");
+			if (channel.m_name.empty())
+				channel.m_name = "thread-" + channel.m_id.substr(0, 6);
 			channel.m_kind = kind;
 			channel.m_position = (int)item.GetInt("position", 0);
 			if (!channel.m_id.empty())
 				out.push_back(channel);
 		}
+		FetchThreads(guild, out);
 		std::sort(out.begin(), out.end(), [](const S_Channel& a, const S_Channel& b) {
 			if (a.m_position != b.m_position)
 				return a.m_position < b.m_position;
@@ -137,41 +236,90 @@ namespace AvirA
 
 	bool C_DiscordClient::SendText(const std::string& channel, const std::string& text, std::string& error)
 	{
-		C_Json body = C_Json::MakeDict();
-		body.Set("content", text);
-		S_HttpResult result = m_http.PostJson("/channels/" + channel + "/messages", body.Dump());
-		if (!result.m_ok)
+		if (Trimmed(text).empty())
 		{
-			error = result.m_error.empty() ? result.m_body : result.m_error;
-			if (error.size() > 220)
-				error = error.substr(0, 220);
+			error = "Empty text";
 			return false;
 		}
-		return true;
+		C_Json body = C_Json::MakeDict();
+		body.Set("content", text);
+		for (int attempt = 0; attempt < 3; attempt++)
+		{
+			S_HttpResult result = m_http.PostJson("/channels/" + channel + "/messages", body.Dump());
+			if (result.m_ok)
+				return true;
+			if (result.m_status == 429)
+			{
+				C_Json root = C_Json::Parse(result.m_body);
+				double wait = 1.2;
+				const C_Json* found = root.Find("retry_after");
+				if (found && found->m_type == E_JsonType::Number)
+					wait = found->m_number;
+				if (wait < 0.2)
+					wait = 0.5;
+				if (wait > 10)
+					wait = 10;
+				std::this_thread::sleep_for(std::chrono::milliseconds((int)(wait * 1000)));
+				if (attempt == 2)
+					error = ShortError(result);
+				continue;
+			}
+			error = ShortError(result);
+			return false;
+		}
+		return false;
 	}
 
 	bool C_DiscordClient::SendFiles(const std::string& channel, const std::string& text, const std::vector<std::string>& paths, std::string& error)
 	{
 		if (paths.empty())
 			return SendText(channel, text, error);
+		std::vector<std::string> alive;
+		for (size_t i = 0; i < paths.size() && i < 10; i++)
+		{
+			DWORD attrs = GetFileAttributesA(paths[i].c_str());
+			if (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY))
+				alive.push_back(paths[i]);
+		}
+		if (alive.empty())
+		{
+			error = "Files not found";
+			return false;
+		}
 		C_Json body = C_Json::MakeDict();
 		body.Set("content", text);
 		std::vector<S_UploadFile> files;
-		for (size_t i = 0; i < paths.size() && i < 10; i++)
+		for (size_t i = 0; i < alive.size(); i++)
 		{
 			S_UploadFile file;
-			file.m_path = paths[i];
+			file.m_path = alive[i];
 			files.push_back(file);
 		}
-		S_HttpResult result = m_http.PostMultipart("/channels/" + channel + "/messages", body.Dump(), files);
-		if (!result.m_ok)
+		for (int attempt = 0; attempt < 3; attempt++)
 		{
-			error = result.m_error.empty() ? result.m_body : result.m_error;
-			if (error.size() > 220)
-				error = error.substr(0, 220);
+			S_HttpResult result = m_http.PostMultipart("/channels/" + channel + "/messages", body.Dump(), files);
+			if (result.m_ok)
+				return true;
+			if (result.m_status == 429)
+			{
+				C_Json root = C_Json::Parse(result.m_body);
+				double wait = 1.2;
+				const C_Json* found = root.Find("retry_after");
+				if (found && found->m_type == E_JsonType::Number)
+					wait = found->m_number;
+				if (wait < 0.2)
+					wait = 0.5;
+				if (wait > 10)
+					wait = 10;
+				std::this_thread::sleep_for(std::chrono::milliseconds((int)(wait * 1000)));
+				if (attempt == 2)
+					error = ShortError(result);
+				continue;
+			}
+			error = ShortError(result);
 			return false;
 		}
-		return true;
+		return false;
 	}
 
 	bool C_DiscordClient::FetchMessages(const std::string& channel, int limit, const std::string& before, std::vector<C_Json>& out)
