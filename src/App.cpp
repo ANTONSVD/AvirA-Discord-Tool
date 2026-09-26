@@ -1255,7 +1255,7 @@ namespace AvirA
 		ImGui::Text("Typing");
 		ImGui::TextDisabled("Holds typing dots forever, refresh every few sec");
 		ImGui::PushItemWidth(140);
-		if (ImGui::SliderInt("Every, sec", &m_typing_interval, 5, 15))
+		if (ImGui::SliderInt("Every, sec", &m_typing_interval, 3, 15))
 		{
 			m_store.Typing()->SetInterval(m_typing_interval);
 			m_store_dirty = true;

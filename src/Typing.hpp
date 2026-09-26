@@ -38,6 +38,7 @@ namespace AvirA
 		std::vector<S_Channel> m_snapshot;
 		std::vector<std::string> m_picked;
 		std::vector<S_TypingState> m_states;
+		std::unordered_map<std::string, u64> m_last_sent;
 		std::mutex m_lock;
 		std::thread m_thread;
 		std::atomic<bool> m_running = false;
