@@ -30,6 +30,7 @@ namespace AvirA
 		size_t m_reply_pos = 0;
 		std::vector<std::string> m_keywords;
 		int m_delete_after = 0;
+		int m_delete_scope = 0;
 		bool m_react_on = false;
 		std::vector<S_AutoEmoji> m_emojis;
 		std::vector<S_AutoLog> m_logs;
@@ -58,6 +59,7 @@ namespace AvirA
 		bool AddKeyword(const std::string& id, const std::string& text);
 		void RemoveKeyword(const std::string& id, size_t index);
 		void SetDeleteAfter(const std::string& id, int seconds);
+		void SetDeleteScope(const std::string& id, int scope);
 		void SetReactOn(const std::string& id, bool value);
 		bool AddEmoji(const std::string& id, const std::string& raw);
 		void RemoveEmoji(const std::string& id, size_t index);

@@ -295,6 +295,16 @@ namespace AvirA
 		}
 	}
 
+	void C_Auto::SetDeleteScope(const std::string& id, int scope)
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		for (size_t i = 0; i < m_items.size(); i++)
+		{
+			if (m_items[i].m_id == id)
+				m_items[i].m_delete_scope = scope == 1 ? 1 : 0;
+		}
+	}
+
 	bool C_Auto::AddReply(const std::string& id, const std::string& text)
 	{
 		std::string clean = Trimmed(text);
@@ -571,8 +581,10 @@ namespace AvirA
 			bool active = false;
 			bool reply_on = false;
 			bool react_on = false;
+			bool matched = false;
 			std::string reply_text;
 			int delete_after = 0;
+			int delete_scope = 0;
 			std::vector<S_AutoEmoji> emojis;
 			{
 				std::lock_guard<std::mutex> guard(m_lock);
@@ -584,12 +596,14 @@ namespace AvirA
 				if (target->m_name.empty())
 					target->m_name = author_name;
 				std::string content = item.GetText("content");
-				reply_on = target->m_reply_on && !target->m_replies.empty() && HasKeyword(content, target->m_keywords);
+				matched = !target->m_keywords.empty() && HasKeyword(content, target->m_keywords);
+				reply_on = target->m_reply_on && !target->m_replies.empty() && (target->m_keywords.empty() || matched);
 				if (reply_on)
 				{
 					reply_text = target->m_replies[target->m_reply_pos % target->m_replies.size()];
 					target->m_reply_pos++;
 					delete_after = target->m_delete_after;
+					delete_scope = target->m_delete_scope;
 				}
 				react_on = target->m_react_on && !target->m_emojis.empty();
 				if (react_on)
@@ -609,7 +623,7 @@ namespace AvirA
 						if (again)
 							Emit(*again, "reply", "Replied in #" + channel.m_name + ": " + reply_text.substr(0, 80));
 					}
-					if (delete_after > 0 && !reply_id.empty())
+					if (delete_after > 0 && !reply_id.empty() && (delete_scope == 0 || matched))
 					{
 						std::shared_ptr<std::atomic<bool>> alive = m_alive;
 						C_DiscordClient* client = m_client;

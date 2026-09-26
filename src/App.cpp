@@ -1539,24 +1539,48 @@ namespace AvirA
 			ImGui::TextDisabled("No keywords means reply to everything. Click keyword to remove.");
 		else
 			ImGui::TextDisabled("Replies only when his message has one of these. Click to remove.");
-		const char* del_labels[] = { "Keep", "30 sec", "1 min", "5 min", "15 min", "1 hour" };
-		int del_values[] = { 0, 30, 60, 300, 900, 3600 };
-		int del_index = 0;
-		for (int i = 0; i < 6; i++)
+		const char* del_what[] = { "Keep", "My reply", "On keyword" };
+		int seconds = current->m_delete_after;
+		int what_index = seconds > 0 ? (current->m_delete_scope == 1 ? 2 : 1) : 0;
+		ImGui::PushItemWidth(130);
+		if (ImGui::Combo(("Delete##" + self_id).c_str(), &what_index, del_what, 3))
 		{
-			if (del_values[i] == current->m_delete_after)
+			if (what_index == 0)
+				seconds = 0;
+			else
 			{
-				del_index = i;
-				break;
+				if (seconds <= 0)
+					seconds = 60;
 			}
-		}
-		ImGui::PushItemWidth(150);
-		if (ImGui::Combo(("Delete reply##" + self_id).c_str(), &del_index, del_labels, 6))
-		{
-			m_store.Auto()->SetDeleteAfter(self_id, del_values[del_index]);
+			m_store.Auto()->SetDeleteAfter(self_id, seconds);
+			m_store.Auto()->SetDeleteScope(self_id, what_index == 2 ? 1 : 0);
 			m_store.Save();
 		}
 		ImGui::PopItemWidth();
+		if (what_index != 0)
+		{
+			ImGui::SameLine();
+			const char* del_labels[] = { "30 sec", "1 min", "5 min", "15 min", "1 hour" };
+			int del_values[] = { 30, 60, 300, 900, 3600 };
+			int del_index = 1;
+			for (int i = 0; i < 5; i++)
+			{
+				if (del_values[i] == seconds)
+				{
+					del_index = i;
+					break;
+				}
+			}
+			ImGui::PushItemWidth(110);
+			if (ImGui::Combo(("After##" + self_id).c_str(), &del_index, del_labels, 5))
+			{
+				m_store.Auto()->SetDeleteAfter(self_id, del_values[del_index]);
+				m_store.Save();
+			}
+			ImGui::PopItemWidth();
+		}
+		if (what_index == 2 && current->m_keywords.empty())
+			ImGui::TextDisabled("No keywords yet, add them above or nothing will delete.");
 		ImGui::Separator();
 		bool react_on = current->m_react_on;
 		if (ImGui::Checkbox(("Auto react##" + self_id).c_str(), &react_on))

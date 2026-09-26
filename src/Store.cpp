@@ -189,7 +189,7 @@ namespace AvirA
 		for (size_t i = 0; i < targets.size(); i++)
 		{
 			S_AutoTarget* item = targets[i];
-			text += "target=" + item->m_id + "|" + (item->m_on ? "1" : "0") + "|" + (item->m_reply_on ? "1" : "0") + "|" + (item->m_react_on ? "1" : "0") + "|" + FormatI32(item->m_delete_after) + "\n";
+			text += "target=" + item->m_id + "|" + (item->m_on ? "1" : "0") + "|" + (item->m_reply_on ? "1" : "0") + "|" + (item->m_react_on ? "1" : "0") + "|" + FormatI32(item->m_delete_after) + "|" + FormatI32(item->m_delete_scope) + "\n";
 			std::string replies;
 			for (size_t k = 0; k < item->m_replies.size(); k++)
 			{
@@ -479,6 +479,7 @@ namespace AvirA
 				size_t p2 = p1 == std::string::npos ? std::string::npos : rest.find('|', p1 + 1);
 				size_t p3 = p2 == std::string::npos ? std::string::npos : rest.find('|', p2 + 1);
 				size_t p4 = p3 == std::string::npos ? std::string::npos : rest.find('|', p3 + 1);
+				size_t p5 = p4 == std::string::npos ? std::string::npos : rest.find('|', p4 + 1);
 				if (p1 != std::string::npos && p2 != std::string::npos && p3 != std::string::npos)
 				{
 					std::string id = rest.substr(0, p1);
@@ -486,16 +487,24 @@ namespace AvirA
 					bool reply_on = rest.substr(p2 + 1, p3 - p2 - 1) == "1";
 					bool react_on = false;
 					int delafter = 0;
+					int scope = 0;
 					if (p4 == std::string::npos)
 						react_on = rest.substr(p3 + 1) == "1";
-					else
+					else if (p5 == std::string::npos)
 					{
 						react_on = rest.substr(p3 + 1, p4 - p3 - 1) == "1";
 						delafter = std::atoi(rest.substr(p4 + 1).c_str());
 					}
+					else
+					{
+						react_on = rest.substr(p3 + 1, p4 - p3 - 1) == "1";
+						delafter = std::atoi(rest.substr(p4 + 1, p5 - p4 - 1).c_str());
+						scope = std::atoi(rest.substr(p5 + 1).c_str());
+					}
 					std::vector<std::string> empty;
 					m_auto.RestoreTarget(id, on, reply_on, react_on, empty, empty);
 					m_auto.SetDeleteAfter(id, delafter);
+					m_auto.SetDeleteScope(id, scope);
 				}
 			}
 			if (line.rfind("replies_", 0) == 0)
