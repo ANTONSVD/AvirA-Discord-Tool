@@ -145,47 +145,58 @@ namespace AvirA
 						due.push_back(m_snapshot[i]);
 				}
 			}
-			for (size_t i = 0; i < due.size() && m_running; i++)
+			size_t workers = due.size();
+			if (workers > 4)
+				workers = 4;
+			std::vector<std::thread> pool;
+			for (size_t w = 0; w < workers; w++)
 			{
-				std::string error;
-				bool ok = m_client && m_client->HasToken() && m_client->SendTyping(due[i].m_id, error);
-				{
-					std::lock_guard<std::mutex> guard(m_lock);
-					m_last_sent[due[i].m_id] = NowMillis();
-					bool known = false;
-					for (size_t k = 0; k < m_states.size(); k++)
+				pool.push_back(std::thread([this, due, w, workers]() {
+					for (size_t i = w; i < due.size() && m_running; i += workers)
 					{
-						if (m_states[k].m_id == due[i].m_id)
+						std::string error;
+						bool ok = m_client && m_client->HasToken() && m_client->SendTyping(due[i].m_id, error);
 						{
-							m_states[k].m_name = due[i].m_name;
-							if (ok)
+							std::lock_guard<std::mutex> guard(m_lock);
+							m_last_sent[due[i].m_id] = NowMillis();
+							bool known = false;
+							for (size_t k = 0; k < m_states.size(); k++)
 							{
-								m_states[k].m_last = NowSeconds();
-								m_states[k].m_error.clear();
+								if (m_states[k].m_id == due[i].m_id)
+								{
+									m_states[k].m_name = due[i].m_name;
+									if (ok)
+									{
+										m_states[k].m_last = NowSeconds();
+										m_states[k].m_error.clear();
+									}
+									else
+										m_states[k].m_error = error;
+									known = true;
+									break;
+								}
 							}
-							else
-								m_states[k].m_error = error;
-							known = true;
-							break;
+							if (!known)
+							{
+								S_TypingState state;
+								state.m_id = due[i].m_id;
+								state.m_name = due[i].m_name;
+								if (ok)
+									state.m_last = NowSeconds();
+								else
+									state.m_error = error;
+								m_states.push_back(state);
+								if (m_states.size() > 200)
+									m_states.erase(m_states.begin());
+							}
 						}
+						std::this_thread::sleep_for(std::chrono::milliseconds(60));
 					}
-					if (!known)
-					{
-						S_TypingState state;
-						state.m_id = due[i].m_id;
-						state.m_name = due[i].m_name;
-						if (ok)
-							state.m_last = NowSeconds();
-						else
-							state.m_error = error;
-						m_states.push_back(state);
-						if (m_states.size() > 200)
-							m_states.erase(m_states.begin());
-					}
-				}
-				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				}));
 			}
-			for (int i = 0; i < 2 && m_running; i++)
+			for (size_t w = 0; w < pool.size(); w++)
+				pool[w].join();
+			if (m_running)
 				std::this_thread::sleep_for(std::chrono::milliseconds(500));
 		}
 	}

@@ -1315,7 +1315,13 @@ namespace AvirA
 					if (!states[k].m_error.empty())
 						info = states[k].m_error;
 					else if (states[k].m_last > 0)
-						info = TimeString(states[k].m_last);
+					{
+						u64 passed = NowSeconds() > states[k].m_last ? NowSeconds() - states[k].m_last : 0;
+						int left = m_typing_interval - (int)passed;
+						if (left < 0)
+							left = 0;
+						info = "ok, next " + FormatI32(left) + "s";
+					}
 					break;
 				}
 			}
