@@ -940,7 +940,7 @@ namespace AvirA
 			ImGui::PopItemWidth();
 			ImGui::SameLine();
 			ImGui::PushItemWidth(150);
-			if (ImGui::SliderInt("Delay ms", &m_spam_delay, 500, 10000))
+			if (ImGui::SliderInt("Delay ms", &m_spam_delay, 200, 10000))
 			{
 				m_store.SetSpam(m_spam_mode, m_spam_count, m_spam_delay, m_spam_numbers);
 				m_store_dirty = true;

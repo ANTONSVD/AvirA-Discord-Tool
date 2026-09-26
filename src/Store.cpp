@@ -369,8 +369,8 @@ namespace AvirA
 			if (line.rfind("spamdelay=", 0) == 0)
 			{
 				m_spam_delay = std::atoi(line.substr(10).c_str());
-				if (m_spam_delay < 500)
-					m_spam_delay = 500;
+				if (m_spam_delay < 200)
+					m_spam_delay = 200;
 				if (m_spam_delay > 10000)
 					m_spam_delay = 10000;
 			}
@@ -768,7 +768,7 @@ namespace AvirA
 	{
 		m_spam_on = on;
 		m_spam_count = count < 2 ? 2 : (count > 50 ? 50 : count);
-		m_spam_delay = delay < 500 ? 500 : (delay > 10000 ? 10000 : delay);
+		m_spam_delay = delay < 200 ? 200 : (delay > 10000 ? 10000 : delay);
 		m_spam_numbers = numbers;
 	}
 

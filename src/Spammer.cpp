@@ -345,7 +345,7 @@ namespace AvirA
 					break;
 				std::string message = text;
 				if (options.m_numbers)
-					message += "\n||" + FormatU64(counter++) + "||";
+					message += " ||" + FormatU64(counter++) + "||";
 				std::string item_error;
 				bool ok = targets[i].m_client && targets[i].m_client->HasToken() && targets[i].m_client->SendFiles(targets[i].m_channel, message, files, item_error);
 				if (!targets[i].m_guild.empty())
