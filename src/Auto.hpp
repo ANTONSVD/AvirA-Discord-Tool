@@ -83,6 +83,6 @@ namespace AvirA
 		std::mutex m_lock;
 		std::thread m_thread;
 		std::atomic<bool> m_running = false;
-		int m_interval = 12;
+		int m_interval = 8;
 	};
 }

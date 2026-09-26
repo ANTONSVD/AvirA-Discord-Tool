@@ -12,6 +12,34 @@ namespace AvirA
 		m_store.Initialize();
 		m_track_interval = m_store.Tracker()->Interval();
 		m_auto_interval = m_store.Auto()->Interval();
+		m_clean_guild_id = m_store.PendingCleanGuild();
+		m_clean_channel_id = m_store.PendingCleanChannel();
+		m_clean_resolve = true;
+		m_filter.m_limit = m_store.CleanLimit();
+		m_filter.m_only_text = m_store.CleanOnly();
+		strncpy_s(m_clean_text, m_store.CleanText().c_str(), sizeof(m_clean_text) - 1);
+		{
+			int hours = m_store.CleanHours();
+			int values[] = { 0, 1, 6, 24, 168, 720 };
+			for (int i = 0; i < 6; i++)
+			{
+				if (values[i] == hours)
+				{
+					m_clean_hours_index = i;
+					break;
+				}
+			}
+		}
+		std::string active = m_store.ActiveAccount();
+		std::string saved_token = m_store.TokenFor(active);
+		if (!active.empty() && !saved_token.empty())
+		{
+			strncpy_s(m_token_edit, saved_token.c_str(), sizeof(m_token_edit) - 1);
+			m_login_error = "Logging in...";
+			std::thread([this]() {
+				Login();
+			}).detach();
+		}
 		std::string hook = m_store.Tracker()->Webhook()->Url();
 		strncpy_s(m_hook_edit, hook.c_str(), sizeof(m_hook_edit) - 1);
 		m_filter.m_limit = 200;
@@ -149,11 +177,14 @@ namespace AvirA
 			return;
 		}
 		m_store.SetMe(name, id);
+		m_store.AddOrUpdateAccount(id, name, token);
+		m_store.SetActiveAccount(id);
+		m_store.Save();
 		m_login_error.clear();
 		RefreshSender();
 	}
 
-	void C_App::Logout()
+	void C_App::LogoutSession()
 	{
 		m_store.Tracker()->Stop();
 		m_store.Auto()->Stop();
@@ -162,6 +193,11 @@ namespace AvirA
 		m_store.SetMe("", "");
 		m_store.Spammer()->Entries().clear();
 		m_store.Cleaner()->Clear();
+	}
+
+	void C_App::Logout()
+	{
+		LogoutSession();
 		memset(m_token_edit, 0, sizeof(m_token_edit));
 	}
 
@@ -204,11 +240,23 @@ namespace AvirA
 		auto& entries = m_store.Spammer()->Entries();
 		if (index >= entries.size())
 			return;
+		std::string guild_id = entries[index].m_guild.m_id;
+		std::string guild_name = entries[index].m_guild.m_name;
 		std::string error;
 		if (!m_store.Spammer()->RefreshChannels(entries[index], error))
 			m_spam_error = error;
-		else if (entries[index].m_channels.empty())
-			m_spam_error = entries[index].m_guild.m_name + ": no text channels";
+		else
+		{
+			auto pending = m_store.PendingPicks();
+			auto found = pending.find(guild_id);
+			if (found != pending.end())
+			{
+				m_store.Spammer()->ApplyPicks(guild_id, found->second);
+				m_store.ForgetPendingPicks(guild_id);
+			}
+			if (entries[index].m_channels.empty())
+				m_spam_error = guild_name + ": no text channels";
+		}
 	}
 
 	void C_App::RefreshAllSenderChannels()
@@ -222,11 +270,18 @@ namespace AvirA
 			std::string error;
 			std::atomic<int> done(0);
 			spammer->RefreshAllChannels(error, &done);
+			auto pending = m_store.PendingPicks();
+			for (auto& pair : pending)
+			{
+				spammer->ApplyPicks(pair.first, pair.second);
+				m_store.ForgetPendingPicks(pair.first);
+			}
 			size_t total = 0;
 			for (size_t i = 0; i < spammer->Entries().size(); i++)
 				total += spammer->Entries()[i].m_channels.size();
 			m_spam_error = error.empty() ? ("Channels: " + FormatU64(total)) : error;
 			m_sender_loading_all = false;
+			m_store_dirty = true;
 		}).detach();
 	}
 
@@ -384,6 +439,36 @@ namespace AvirA
 		if (m_store.Logged())
 		{
 			ImGui::TextDisabled("%s  %s", m_store.MeName().c_str(), m_store.MeId().c_str());
+			auto accounts = m_store.Accounts();
+			if (accounts.size() > 1)
+			{
+				ImGui::SameLine();
+				std::vector<const char*> names;
+				std::vector<std::string> keep;
+				for (size_t i = 0; i < accounts.size(); i++)
+					keep.push_back(accounts[i].m_name);
+				for (size_t i = 0; i < keep.size(); i++)
+					names.push_back(keep[i].c_str());
+				int current = 0;
+				for (size_t i = 0; i < accounts.size(); i++)
+				{
+					if (accounts[i].m_id == m_store.MeId())
+						current = (int)i;
+				}
+				m_account_index = current;
+				ImGui::PushItemWidth(140);
+				if (ImGui::Combo("##account", &m_account_index, names.data(), (int)names.size()))
+				{
+					if ((size_t)m_account_index < accounts.size() && accounts[m_account_index].m_id != m_store.MeId())
+					{
+						std::string token = accounts[m_account_index].m_token;
+						strncpy_s(m_token_edit, token.c_str(), sizeof(m_token_edit) - 1);
+						LogoutSession();
+						Login();
+					}
+				}
+				ImGui::PopItemWidth();
+			}
 			ImGui::SameLine(ImGui::GetWindowWidth() - 170);
 			float pulse = C_Theme::Pulse(NowMillis(), 0.6f);
 			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f + 0.4f * pulse, 0.9f, 0.45f, 1.0f));
@@ -672,7 +757,11 @@ namespace AvirA
 					bool picked = k < entry.m_picked.size() ? entry.m_picked[k] : false;
 					std::string label = "#" + entry.m_channels[k].m_name + " (" + C_DiscordClient::KindLabel(entry.m_channels[k].m_kind) + ")##" + entry.m_channels[k].m_id;
 					if (ImGui::Checkbox(label.c_str(), &picked))
+					{
 						entry.m_picked[k] = picked;
+						m_store.ForgetPendingPicks(entry.m_guild.m_id);
+						m_store_dirty = true;
+					}
 				}
 				if (entry.m_channels.empty())
 					ImGui::TextDisabled("No text channels, threads included.");
@@ -682,9 +771,37 @@ namespace AvirA
 		ImGui::EndChild();
 	}
 
+	static void PushCleanState(C_Store& store, const std::string& guild, const std::string& channel, int hours, int limit, const std::string& text, bool only)
+	{
+		store.SetCleanerState(guild, channel, hours, limit, text, only);
+	}
+
 	void C_App::DrawCleaner()
 	{
 		auto& entries = m_store.Spammer()->Entries();
+		if (m_clean_resolve && !entries.empty())
+		{
+			m_clean_guild_index = 0;
+			for (size_t i = 0; i < entries.size(); i++)
+			{
+				if (entries[i].m_guild.m_id == m_clean_guild_id)
+				{
+					m_clean_guild_index = (int)i + 1;
+					break;
+				}
+			}
+			std::vector<S_Channel> resolved = CleanerChannels();
+			m_clean_channel_index = 0;
+			for (size_t i = 0; i < resolved.size(); i++)
+			{
+				if (resolved[i].m_id == m_clean_channel_id)
+				{
+					m_clean_channel_index = (int)i + 1;
+					break;
+				}
+			}
+			m_clean_resolve = false;
+		}
 		std::vector<S_Channel> channels = CleanerChannels();
 		const char* hours_labels[] = { "Any time", "Last hour", "Last 6 hours", "Last day", "Last week", "Last month" };
 		int hours_values[] = { 0, 1, 6, 24, 168, 720 };
@@ -702,7 +819,14 @@ namespace AvirA
 			m_clean_guild_index = 0;
 		ImGui::PushItemWidth(220);
 		if (ImGui::Combo("Server", &m_clean_guild_index, guild_names.data(), (int)guild_names.size()))
+		{
 			m_clean_channel_index = 0;
+			std::string guild = m_clean_guild_index <= 0 ? "all" : entries[m_clean_guild_index - 1].m_guild.m_id;
+			m_clean_guild_id = guild;
+			m_clean_channel_id = "all";
+			PushCleanState(m_store, guild, "all", hours_values[m_clean_hours_index < 0 || m_clean_hours_index >= 6 ? 0 : m_clean_hours_index], m_filter.m_limit, Trimmed(m_clean_text), m_filter.m_only_text);
+			m_store_dirty = true;
+		}
 		ImGui::PopItemWidth();
 		ImGui::SameLine();
 		std::vector<const char*> names;
@@ -716,22 +840,44 @@ namespace AvirA
 		if (m_clean_channel_index >= (int)names.size())
 			m_clean_channel_index = 0;
 		ImGui::PushItemWidth(220);
-		ImGui::Combo("Channel", &m_clean_channel_index, names.data(), (int)names.size());
+		if (ImGui::Combo("Channel", &m_clean_channel_index, names.data(), (int)names.size()))
+		{
+			std::string channel = m_clean_channel_index <= 0 ? "all" : channels[m_clean_channel_index - 1].m_id;
+			m_clean_channel_id = channel;
+			PushCleanState(m_store, m_clean_guild_id, channel, hours_values[m_clean_hours_index < 0 || m_clean_hours_index >= 6 ? 0 : m_clean_hours_index], m_filter.m_limit, Trimmed(m_clean_text), m_filter.m_only_text);
+			m_store_dirty = true;
+		}
 		ImGui::PopItemWidth();
 		ImGui::PushItemWidth(150);
-		ImGui::Combo("Age", &m_clean_hours_index, hours_labels, 6);
+		if (ImGui::Combo("Age", &m_clean_hours_index, hours_labels, 6))
+		{
+			PushCleanState(m_store, m_clean_guild_id, m_clean_channel_id, hours_values[m_clean_hours_index < 0 || m_clean_hours_index >= 6 ? 0 : m_clean_hours_index], m_filter.m_limit, Trimmed(m_clean_text), m_filter.m_only_text);
+			m_store_dirty = true;
+		}
 		ImGui::PopItemWidth();
 		ImGui::SameLine();
 		ImGui::PushItemWidth(120);
-		ImGui::SliderInt("Limit", &m_filter.m_limit, 10, 500);
+		if (ImGui::SliderInt("Limit", &m_filter.m_limit, 10, 500))
+		{
+			PushCleanState(m_store, m_clean_guild_id, m_clean_channel_id, hours_values[m_clean_hours_index < 0 || m_clean_hours_index >= 6 ? 0 : m_clean_hours_index], m_filter.m_limit, Trimmed(m_clean_text), m_filter.m_only_text);
+			m_store_dirty = true;
+		}
 		ImGui::PopItemWidth();
 		ImGui::PushItemWidth(200);
-		ImGui::InputTextWithHint("##ctext", "Text contains, optional", m_clean_text, sizeof(m_clean_text));
+		if (ImGui::InputTextWithHint("##ctext", "Text contains, optional", m_clean_text, sizeof(m_clean_text)))
+		{
+			PushCleanState(m_store, m_clean_guild_id, m_clean_channel_id, hours_values[m_clean_hours_index < 0 || m_clean_hours_index >= 6 ? 0 : m_clean_hours_index], m_filter.m_limit, Trimmed(m_clean_text), m_filter.m_only_text);
+			m_store_dirty = true;
+		}
 		ImGui::PopItemWidth();
 		ImGui::SameLine();
 		bool only = m_filter.m_only_text;
 		if (ImGui::Checkbox("Only with text", &only))
+		{
 			m_filter.m_only_text = only;
+			PushCleanState(m_store, m_clean_guild_id, m_clean_channel_id, hours_values[m_clean_hours_index < 0 || m_clean_hours_index >= 6 ? 0 : m_clean_hours_index], m_filter.m_limit, Trimmed(m_clean_text), only);
+			m_store_dirty = true;
+		}
 		if (m_clean_busy)
 		{
 			ImGui::BeginDisabled();
@@ -830,7 +976,7 @@ namespace AvirA
 		}
 		ImGui::SameLine();
 		ImGui::PushItemWidth(140);
-		if (ImGui::SliderInt("Every, sec", &m_auto_interval, 5, 120))
+		if (ImGui::SliderInt("Every, sec", &m_auto_interval, 2, 120))
 		{
 			m_store.Auto()->SetInterval(m_auto_interval);
 			m_store.Save();
@@ -1102,15 +1248,37 @@ namespace AvirA
 
 	void C_App::DrawSettings()
 	{
-		ImGui::BeginChild("settings", ImVec2(0, 200), true);
+		ImGui::BeginChild("settings", ImVec2(0, 330), true);
 		ImGui::Text("About");
-		ImGui::TextDisabled("AvirA Discord Tool. Token stays on your pc, nothing sent anywhere except discord.");
+		ImGui::TextDisabled("AvirA Discord Tool. Tokens live in your cfg next to the app, nothing sent anywhere except discord.");
 		ImGui::TextDisabled("Tracker polls profiles, Sender posts to picked channels, Cleaner deletes your messages.");
 		ImGui::Separator();
-		ImGui::TextDisabled("Config: %s", m_store.ConfigPath().c_str());
-		if (ImGui::SmallButton("Forget token and exit tracker"))
+		ImGui::Text("Accounts (%llu)", (unsigned long long)m_store.Accounts().size());
+		auto accounts = m_store.Accounts();
+		for (size_t i = 0; i < accounts.size(); i++)
 		{
-			m_store.Tracker()->Stop();
+			ImGui::TextDisabled("%s", accounts[i].m_name.c_str());
+			ImGui::SameLine();
+			ImGui::TextDisabled("%s", accounts[i].m_id.c_str());
+			ImGui::SameLine(ImGui::GetWindowWidth() - 90);
+			if (ImGui::SmallButton(("Forget##" + accounts[i].m_id).c_str()))
+			{
+				bool active = accounts[i].m_id == m_store.MeId();
+				m_store.RemoveAccount(accounts[i].m_id);
+				m_store.Save();
+				if (active)
+					Logout();
+				break;
+			}
+		}
+		if (accounts.empty())
+			ImGui::TextDisabled("No saved accounts yet, login first.");
+		ImGui::Separator();
+		ImGui::TextDisabled("Config: %s", m_store.ConfigPath().c_str());
+		if (ImGui::SmallButton("Forget all accounts and logout"))
+		{
+			m_store.ClearAccounts();
+			m_store.Save();
 			Logout();
 		}
 		ImGui::EndChild();
@@ -1120,6 +1288,12 @@ namespace AvirA
 	{
 		u64 active = NowMillis() - m_boot;
 		float fade = active < 350 ? (float)active / 350.0f : 1.0f;
+		if (m_store_dirty && NowMillis() - m_last_save > 2000)
+		{
+			m_store.Save();
+			m_store_dirty = false;
+			m_last_save = NowMillis();
+		}
 		ImGui::PushStyleVar(ImGuiStyleVar_Alpha, fade);
 		ImGui::SetNextWindowPos(ImVec2(0, 0));
 		ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);

@@ -191,6 +191,31 @@ namespace AvirA
 		return nullptr;
 	}
 
+	void C_Spammer::ApplyPicks(const std::string& guild, const std::vector<std::string>& channels)
+	{
+		if (channels.empty())
+			return;
+		for (size_t i = 0; i < m_entries.size(); i++)
+		{
+			if (m_entries[i].m_guild.m_id != guild)
+				continue;
+			for (size_t k = 0; k < m_entries[i].m_channels.size() && k < m_entries[i].m_picked.size(); k++)
+			{
+				bool hit = false;
+				for (size_t n = 0; n < channels.size(); n++)
+				{
+					if (m_entries[i].m_channels[k].m_id == channels[n])
+					{
+						hit = true;
+						break;
+					}
+				}
+				if (hit)
+					m_entries[i].m_picked[k] = true;
+			}
+		}
+	}
+
 	std::vector<S_GuildEntry>& C_Spammer::Entries()
 	{
 		return m_entries;

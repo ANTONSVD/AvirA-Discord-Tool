@@ -27,6 +27,7 @@ namespace AvirA
 		std::vector<std::string> Favorites() const;
 		void ApplyFavorites(const std::vector<std::string>& ids);
 		S_GuildEntry* FindEntry(const std::string& id);
+		void ApplyPicks(const std::string& guild, const std::vector<std::string>& channels);
 		std::vector<S_GuildEntry>& Entries();
 		size_t PickedCount() const;
 		void ClearPicks();

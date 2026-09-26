@@ -20,6 +20,7 @@ namespace AvirA
 
 		void Login();
 		void Logout();
+		void LogoutSession();
 		void AddTracked();
 		void PickFilesViaDialog();
 		void RefreshSender();
@@ -64,6 +65,12 @@ namespace AvirA
 		bool m_auto_emoji_busy = false;
 		int m_auto_emoji_guild = 0;
 		std::vector<S_GuildEmoji> m_auto_emojis;
+		bool m_store_dirty = false;
+		u64 m_last_save = 0;
+		bool m_clean_resolve = true;
+		std::string m_clean_guild_id = "all";
+		std::string m_clean_channel_id = "all";
+		int m_account_index = 0;
 
 		std::atomic<int> m_spam_done = 0;
 		std::atomic<int> m_spam_total = 0;

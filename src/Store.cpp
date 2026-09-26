@@ -111,6 +111,35 @@ namespace AvirA
 			text += favorites[i];
 		}
 		text += "\n";
+		auto& live_entries = m_spammer.Entries();
+		for (size_t i = 0; i < live_entries.size(); i++)
+		{
+			bool any = false;
+			std::string picks;
+			for (size_t k = 0; k < live_entries[i].m_channels.size() && k < live_entries[i].m_picked.size(); k++)
+			{
+				if (live_entries[i].m_picked[k])
+				{
+					if (any)
+						picks += ",";
+					picks += live_entries[i].m_channels[k].m_id;
+					any = true;
+				}
+			}
+			if (any)
+				text += "pick_" + live_entries[i].m_guild.m_id + "=" + picks + "\n";
+		}
+		text += "[cleaner]\n";
+		text += "guild=" + m_clean_guild_id + "\n";
+		text += "channel=" + m_clean_channel_id + "\n";
+		text += "hours=" + FormatI32(m_clean_hours) + "\n";
+		text += "limit=" + FormatI32(m_clean_limit) + "\n";
+		text += "only=" + std::string(m_clean_only ? "1" : "0") + "\n";
+		text += "ctext=" + Escaped(m_clean_text) + "\n";
+		text += "[accounts]\n";
+		text += "active=" + m_active_account + "\n";
+		for (size_t i = 0; i < m_accounts.size(); i++)
+			text += "account=" + m_accounts[i].m_id + "|" + Escaped(m_accounts[i].m_name) + "|" + m_accounts[i].m_token + "\n";
 		text += "[auto]\n";
 		text += "auto_interval=" + FormatI32(m_auto.Interval()) + "\n";
 		{
@@ -211,6 +240,74 @@ namespace AvirA
 					if (comma == std::string::npos)
 						break;
 					p = comma + 1;
+				}
+			}
+			if (line.rfind("pick_", 0) == 0)
+			{
+				size_t eq = line.find('=');
+				if (eq != std::string::npos)
+				{
+					std::string guild = line.substr(5, eq - 5);
+					std::string list = line.substr(eq + 1);
+					std::vector<std::string> ids;
+					size_t p = 0;
+					while (p < list.size())
+					{
+						size_t comma = list.find(',', p);
+						std::string id = Trimmed(list.substr(p, comma == std::string::npos ? std::string::npos : comma - p));
+						if (!id.empty())
+							ids.push_back(id);
+						if (comma == std::string::npos)
+							break;
+						p = comma + 1;
+					}
+					if (!guild.empty() && !ids.empty())
+						m_pending_picks[guild] = ids;
+				}
+			}
+			if (line.rfind("guild=", 0) == 0)
+			{
+				m_clean_guild_id = Trimmed(line.substr(6));
+				if (m_clean_guild_id.empty())
+					m_clean_guild_id = "all";
+				m_pending_clean_guild = m_clean_guild_id;
+			}
+			if (line.rfind("channel=", 0) == 0)
+			{
+				m_clean_channel_id = Trimmed(line.substr(8));
+				if (m_clean_channel_id.empty())
+					m_clean_channel_id = "all";
+				m_pending_clean_channel = m_clean_channel_id;
+			}
+			if (line.rfind("hours=", 0) == 0)
+				m_clean_hours = std::atoi(line.substr(6).c_str());
+			if (line.rfind("limit=", 0) == 0)
+			{
+				m_clean_limit = std::atoi(line.substr(6).c_str());
+				if (m_clean_limit < 10)
+					m_clean_limit = 10;
+				if (m_clean_limit > 500)
+					m_clean_limit = 500;
+			}
+			if (line.rfind("only=", 0) == 0)
+				m_clean_only = Trimmed(line.substr(5)) == "1";
+			if (line.rfind("ctext=", 0) == 0)
+				m_clean_text = Unescaped(line.substr(6));
+			if (line.rfind("active=", 0) == 0)
+				m_active_account = Trimmed(line.substr(7));
+			if (line.rfind("account=", 0) == 0)
+			{
+				std::string rest = line.substr(8);
+				size_t p1 = rest.find('|');
+				size_t p2 = p1 == std::string::npos ? std::string::npos : rest.find('|', p1 + 1);
+				if (p1 != std::string::npos && p2 != std::string::npos)
+				{
+					S_Account account;
+					account.m_id = rest.substr(0, p1);
+					account.m_name = Unescaped(rest.substr(p1 + 1, p2 - p1 - 1));
+					account.m_token = rest.substr(p2 + 1);
+					if (!account.m_id.empty() && !account.m_token.empty())
+						m_accounts.push_back(account);
 				}
 			}
 			if (line.rfind("auto_interval=", 0) == 0)
@@ -358,6 +455,125 @@ namespace AvirA
 	std::vector<std::string> C_Store::PendingFavorites() const
 	{
 		return m_pending_favorites;
+	}
+
+	std::vector<C_Store::S_Account> C_Store::Accounts() const
+	{
+		return m_accounts;
+	}
+
+	std::string C_Store::ActiveAccount() const
+	{
+		return m_active_account;
+	}
+
+	void C_Store::AddOrUpdateAccount(const std::string& id, const std::string& name, const std::string& token)
+	{
+		for (size_t i = 0; i < m_accounts.size(); i++)
+		{
+			if (m_accounts[i].m_id == id)
+			{
+				m_accounts[i].m_name = name;
+				m_accounts[i].m_token = token;
+				return;
+			}
+		}
+		S_Account account;
+		account.m_id = id;
+		account.m_name = name;
+		account.m_token = token;
+		m_accounts.push_back(account);
+	}
+
+	void C_Store::SetActiveAccount(const std::string& id)
+	{
+		m_active_account = id;
+	}
+
+	void C_Store::RemoveAccount(const std::string& id)
+	{
+		for (size_t i = 0; i < m_accounts.size(); i++)
+		{
+			if (m_accounts[i].m_id == id)
+			{
+				m_accounts.erase(m_accounts.begin() + i);
+				break;
+			}
+		}
+		if (m_active_account == id)
+			m_active_account.clear();
+	}
+
+	void C_Store::ClearAccounts()
+	{
+		m_accounts.clear();
+		m_active_account.clear();
+	}
+
+	std::string C_Store::TokenFor(const std::string& id) const
+	{
+		for (size_t i = 0; i < m_accounts.size(); i++)
+		{
+			if (m_accounts[i].m_id == id)
+				return m_accounts[i].m_token;
+		}
+		return "";
+	}
+
+	std::unordered_map<std::string, std::vector<std::string>> C_Store::PendingPicks() const
+	{
+		return m_pending_picks;
+	}
+
+	void C_Store::ForgetPendingPicks(const std::string& guild)
+	{
+		m_pending_picks.erase(guild);
+	}
+
+	std::string C_Store::PendingCleanGuild() const
+	{
+		return m_pending_clean_guild;
+	}
+
+	std::string C_Store::PendingCleanChannel() const
+	{
+		return m_pending_clean_channel;
+	}
+
+	void C_Store::ClearPendingClean()
+	{
+		m_pending_clean_guild = "all";
+		m_pending_clean_channel = "all";
+	}
+
+	void C_Store::SetCleanerState(const std::string& guild, const std::string& channel, int hours, int limit, const std::string& text, bool only)
+	{
+		m_clean_guild_id = guild.empty() ? "all" : guild;
+		m_clean_channel_id = channel.empty() ? "all" : channel;
+		m_clean_hours = hours;
+		m_clean_limit = limit;
+		m_clean_text = text;
+		m_clean_only = only;
+	}
+
+	int C_Store::CleanHours() const
+	{
+		return m_clean_hours;
+	}
+
+	int C_Store::CleanLimit() const
+	{
+		return m_clean_limit;
+	}
+
+	std::string C_Store::CleanText() const
+	{
+		return m_clean_text;
+	}
+
+	bool C_Store::CleanOnly() const
+	{
+		return m_clean_only;
 	}
 
 	std::string C_Store::ConfigPath() const

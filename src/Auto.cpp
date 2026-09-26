@@ -16,8 +16,8 @@ namespace AvirA
 
 	void C_Auto::SetInterval(int seconds)
 	{
-		if (seconds < 5)
-			seconds = 5;
+		if (seconds < 2)
+			seconds = 2;
 		if (seconds > 300)
 			seconds = 300;
 		m_interval = seconds;
@@ -343,7 +343,7 @@ namespace AvirA
 				PrimeChannel(channels[i]);
 			else
 				ScanChannel(channels[i]);
-			std::this_thread::sleep_for(std::chrono::milliseconds(350));
+			std::this_thread::sleep_for(std::chrono::milliseconds(120));
 		}
 	}
 
@@ -472,7 +472,7 @@ namespace AvirA
 					if (again)
 						Emit(*again, "error", "Reply failed #" + channel.m_name + ": " + error);
 				}
-				std::this_thread::sleep_for(std::chrono::milliseconds(500));
+				std::this_thread::sleep_for(std::chrono::milliseconds(250));
 			}
 			if (react_on)
 			{
@@ -493,7 +493,7 @@ namespace AvirA
 						if (again)
 							Emit(*again, "error", "React failed " + emojis[e].Display() + ": " + error);
 					}
-					std::this_thread::sleep_for(std::chrono::milliseconds(400));
+					std::this_thread::sleep_for(std::chrono::milliseconds(250));
 				}
 			}
 		}
