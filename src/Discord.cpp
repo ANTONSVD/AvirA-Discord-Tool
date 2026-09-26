@@ -490,32 +490,33 @@ namespace AvirA
 		return false;
 	}
 
-	bool C_DiscordClient::SendTyping(const std::string& channel, std::string& error)
+	bool C_DiscordClient::SendTyping(const std::string& channel, std::string& error, double* retry_after, bool* was_global)
 	{
-		for (int attempt = 0; attempt < 2; attempt++)
+		S_HttpResult result = m_http.PostEmpty("/channels/" + channel + "/typing");
+		if (result.m_ok || result.m_status == 204)
+			return true;
+		if (result.m_status == 429)
 		{
-			S_HttpResult result = m_http.PostEmpty("/channels/" + channel + "/typing");
-			if (result.m_ok || result.m_status == 204)
-				return true;
-			if (result.m_status == 429)
-			{
-				C_Json root = C_Json::Parse(result.m_body);
-				double wait = 2.0;
-				const C_Json* found = root.Find("retry_after");
-				if (found && found->m_type == E_JsonType::Number)
-					wait = found->m_number;
-				if (wait < 0.5)
-					wait = 1.0;
-				if (wait > 15)
-					wait = 15;
-				std::this_thread::sleep_for(std::chrono::milliseconds((int)(wait * 1000)));
-				if (attempt == 1)
-					error = ShortError(result);
-				continue;
-			}
-			error = ShortError(result);
+			C_Json root = C_Json::Parse(result.m_body);
+			double wait = 2.0;
+			const C_Json* found = root.Find("retry_after");
+			if (found && found->m_type == E_JsonType::Number)
+				wait = found->m_number;
+			if (wait < 0.5)
+				wait = 0.5;
+			if (wait > 60)
+				wait = 60;
+			bool global = root.GetBool("global", false);
+			if (retry_after)
+				*retry_after = wait;
+			if (was_global)
+				*was_global = global;
+			char buffer[64];
+			snprintf(buffer, sizeof(buffer), "429 wait %.1fs%s", wait, global ? " global" : "");
+			error = buffer;
 			return false;
 		}
+		error = ShortError(result);
 		return false;
 	}
 

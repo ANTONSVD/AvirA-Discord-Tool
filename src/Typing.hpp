@@ -39,6 +39,9 @@ namespace AvirA
 		std::vector<std::string> m_picked;
 		std::vector<S_TypingState> m_states;
 		std::unordered_map<std::string, u64> m_last_sent;
+		std::unordered_map<std::string, u64> m_wait_until;
+		u64 m_global_freeze = 0;
+		u64 m_next_slot = 0;
 		std::mutex m_lock;
 		std::thread m_thread;
 		std::atomic<bool> m_running = false;

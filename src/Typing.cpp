@@ -35,7 +35,10 @@ namespace AvirA
 			if (m_picked[i] == id)
 			{
 				if (!value)
+				{
 					m_picked.erase(m_picked.begin() + i);
+					m_wait_until.erase(id);
+				}
 				return;
 			}
 		}
@@ -62,6 +65,7 @@ namespace AvirA
 	{
 		std::lock_guard<std::mutex> guard(m_lock);
 		m_picked.clear();
+		m_wait_until.clear();
 	}
 
 	std::vector<std::string> C_Typing::Picked() const
@@ -119,9 +123,16 @@ namespace AvirA
 		{
 			u64 now = NowMillis();
 			int gap = 0;
+			bool frozen = false;
 			{
 				std::lock_guard<std::mutex> guard(m_lock);
 				gap = m_interval;
+				frozen = now < m_global_freeze;
+			}
+			if (frozen)
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(500));
+				continue;
 			}
 			std::vector<S_Channel> due;
 			{
@@ -139,6 +150,9 @@ namespace AvirA
 					}
 					if (!picked)
 						continue;
+					auto waiting = m_wait_until.find(m_snapshot[i].m_id);
+					if (waiting != m_wait_until.end() && now < waiting->second)
+						continue;
 					auto found = m_last_sent.find(m_snapshot[i].m_id);
 					u64 last = found == m_last_sent.end() ? 0 : found->second;
 					if (last == 0 || now - last >= (u64)gap * 1000)
@@ -154,11 +168,38 @@ namespace AvirA
 				pool.push_back(std::thread([this, due, w, workers]() {
 					for (size_t i = w; i < due.size() && m_running; i += workers)
 					{
-						std::string error;
-						bool ok = m_client && m_client->HasToken() && m_client->SendTyping(due[i].m_id, error);
+						u64 slot = 0;
 						{
 							std::lock_guard<std::mutex> guard(m_lock);
-							m_last_sent[due[i].m_id] = NowMillis();
+							u64 tick = NowMillis();
+							slot = m_next_slot;
+							if (slot < tick)
+								slot = tick;
+							m_next_slot = slot + 150;
+						}
+						u64 tick = NowMillis();
+						if (slot > tick)
+							std::this_thread::sleep_for(std::chrono::milliseconds((int)(slot - tick)));
+						if (!m_running)
+							break;
+						std::string error;
+						double retry = 0;
+						bool global = false;
+						bool ok = m_client && m_client->HasToken() && m_client->SendTyping(due[i].m_id, error, &retry, &global);
+						{
+							std::lock_guard<std::mutex> guard(m_lock);
+							u64 stamp = NowMillis();
+							m_last_sent[due[i].m_id] = stamp;
+							if (!ok && retry > 0)
+							{
+								u64 wait = (u64)(retry * 1000) + 500;
+								if (global)
+									m_global_freeze = stamp + wait;
+								else
+									m_wait_until[due[i].m_id] = stamp + wait;
+							}
+							else if (ok)
+								m_wait_until.erase(due[i].m_id);
 							bool known = false;
 							for (size_t k = 0; k < m_states.size(); k++)
 							{
@@ -190,7 +231,6 @@ namespace AvirA
 									m_states.erase(m_states.begin());
 							}
 						}
-						std::this_thread::sleep_for(std::chrono::milliseconds(60));
 					}
 				}));
 			}
