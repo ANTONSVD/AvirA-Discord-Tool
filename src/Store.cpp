@@ -146,6 +146,7 @@ namespace AvirA
 		text += "spamcount=" + FormatI32(m_spam_count) + "\n";
 		text += "spamdelay=" + FormatI32(m_spam_delay) + "\n";
 		text += "spamnumbers=" + std::string(m_spam_numbers ? "1" : "0") + "\n";
+		text += "spamthreads=" + FormatI32(m_spam_threads) + "\n";
 		text += "senderdel=" + FormatI32(m_sender_del_count) + "\n";
 		text += "[cleaner]\n";
 		text += "guild=" + m_clean_guild_id + "\n";
@@ -369,13 +370,21 @@ namespace AvirA
 			if (line.rfind("spamdelay=", 0) == 0)
 			{
 				m_spam_delay = std::atoi(line.substr(10).c_str());
-				if (m_spam_delay < 200)
-					m_spam_delay = 200;
+				if (m_spam_delay < 50)
+					m_spam_delay = 50;
 				if (m_spam_delay > 10000)
 					m_spam_delay = 10000;
 			}
 			if (line.rfind("spamnumbers=", 0) == 0)
 				m_spam_numbers = Trimmed(line.substr(12)) == "1";
+			if (line.rfind("spamthreads=", 0) == 0)
+			{
+				m_spam_threads = std::atoi(line.substr(12).c_str());
+				if (m_spam_threads < 1)
+					m_spam_threads = 1;
+				if (m_spam_threads > 4)
+					m_spam_threads = 4;
+			}
 			if (line.rfind("senderdel=", 0) == 0)
 			{
 				m_sender_del_count = std::atoi(line.substr(10).c_str());
@@ -764,12 +773,18 @@ namespace AvirA
 		return m_sender_del_count;
 	}
 
-	void C_Store::SetSpam(bool on, int count, int delay, bool numbers)
+	void C_Store::SetSpam(bool on, int count, int delay, bool numbers, int threads)
 	{
 		m_spam_on = on;
 		m_spam_count = count < 2 ? 2 : (count > 50 ? 50 : count);
-		m_spam_delay = delay < 200 ? 200 : (delay > 10000 ? 10000 : delay);
+		m_spam_delay = delay < 50 ? 50 : (delay > 10000 ? 10000 : delay);
 		m_spam_numbers = numbers;
+		m_spam_threads = threads < 1 ? 1 : (threads > 4 ? 4 : threads);
+	}
+
+	int C_Store::SpamThreads() const
+	{
+		return m_spam_threads;
 	}
 
 	void C_Store::SetSenderDelCount(int value)

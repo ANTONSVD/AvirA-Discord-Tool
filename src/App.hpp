@@ -76,6 +76,7 @@ namespace AvirA
 		int m_spam_count = 5;
 		int m_spam_delay = 1500;
 		bool m_spam_numbers = true;
+		int m_spam_threads = 1;
 		int m_sender_del_count = 10;
 		int m_auto_del_index = 0;
 		bool m_auto_busy = false;

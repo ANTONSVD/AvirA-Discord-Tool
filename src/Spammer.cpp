@@ -321,88 +321,100 @@ namespace AvirA
 		int repeat = options.m_repeat < 1 ? 1 : options.m_repeat;
 		if (repeat > 100)
 			repeat = 100;
-		int base = options.m_delay_ms < 200 ? 200 : options.m_delay_ms;
+		int base = options.m_delay_ms < 50 ? 50 : options.m_delay_ms;
 		if (base > 30000)
 			base = 30000;
+		int workers = options.m_workers < 1 ? 1 : options.m_workers;
+		if (workers > 4)
+			workers = 4;
+		size_t jobs = targets.size() * (size_t)repeat;
 		m_sending = true;
 		m_cancel = false;
 		if (total)
-			*total = (int)(targets.size() * (size_t)repeat);
+			*total = (int)jobs;
 		if (done)
 			*done = 0;
+		std::atomic<int> delay(base);
 		if (options.m_delay_view)
 			*options.m_delay_view = base;
-		int delay = base;
-		int failed = 0;
-		int sent = 0;
-		u64 counter = 1;
+		std::atomic<int> failed(0);
+		std::atomic<int> sent(0);
+		std::atomic<u64> counter(1);
 		std::string first_error;
-		for (int r = 0; r < repeat; r++)
+		std::vector<std::thread> pool;
+		for (int w = 0; w < workers && (size_t)w < jobs; w++)
 		{
-			for (size_t i = 0; i < targets.size(); i++)
-			{
-				if (m_cancel)
-					break;
-				std::string message = text;
-				if (options.m_numbers)
-					message += " ||" + FormatU64(counter++) + "||";
-				std::string item_error;
-				bool ok = targets[i].m_client && targets[i].m_client->HasToken() && targets[i].m_client->SendFiles(targets[i].m_channel, message, files, item_error);
-				if (!targets[i].m_guild.empty())
+			pool.push_back(std::thread([this, &targets, &text, &files, &options, &first_error, base, jobs, w, workers, done, &delay, &failed, &sent, &counter]() {
+				for (size_t j = (size_t)w; j < jobs && !m_cancel; j += (size_t)workers)
 				{
-					S_GuildEntry* entry = FindEntry(targets[i].m_guild);
-					if (entry)
-						entry->m_last_send = ok ? "ok" : item_error;
-				}
-				if (!ok)
-				{
-					failed++;
-					if (first_error.empty())
-						first_error = targets[i].m_label + ": " + item_error;
-					if (Has429(item_error))
+					size_t i = j % targets.size();
+					std::string message = text;
+					if (options.m_numbers)
+						message += " ||" + FormatU64(counter.fetch_add(1)) + "||";
+					std::string item_error;
+					bool ok = targets[i].m_client && targets[i].m_client->HasToken() && targets[i].m_client->SendFiles(targets[i].m_channel, message, files, item_error);
 					{
-						delay += 2000;
-						if (delay > 30000)
-							delay = 30000;
+						std::lock_guard<std::mutex> guard(m_lock);
+						if (!targets[i].m_guild.empty())
+						{
+							S_GuildEntry* entry = FindEntry(targets[i].m_guild);
+							if (entry)
+								entry->m_last_send = ok ? "ok" : item_error;
+						}
+						if (!ok)
+						{
+							failed++;
+							if (first_error.empty())
+								first_error = targets[i].m_label + ": " + item_error;
+						}
+						else
+							sent++;
 					}
-				}
-				else
-				{
-					sent++;
-					if (delay > base)
+					int current = delay.load();
+					if (!ok && Has429(item_error))
 					{
-						delay -= 100;
-						if (delay < base)
-							delay = base;
+						int raised = current + 2000;
+						if (raised > 30000)
+							raised = 30000;
+						delay.store(raised);
 					}
+					else if (ok && current > base)
+					{
+						int lowered = current - 100;
+						if (lowered < base)
+							lowered = base;
+						delay.store(lowered);
+					}
+					if (options.m_delay_view)
+						*options.m_delay_view = delay.load();
+					if (done)
+						(*done)++;
+					if (j + (size_t)workers < jobs)
+						SleepCancel(delay.load(), &m_cancel);
 				}
-				if (options.m_delay_view)
-					*options.m_delay_view = delay;
-				if (done)
-					(*done)++;
-				if (r != repeat - 1 || i + 1 != targets.size())
-					SleepCancel(delay, &m_cancel);
-			}
-			if (m_cancel)
-				break;
+			}));
 		}
+		for (size_t w = 0; w < pool.size(); w++)
+			pool[w].join();
 		m_sending = false;
+		int sent_count = sent.load();
+		int failed_count = failed.load();
 		if (m_cancel)
 		{
-			error = "Cancelled, sent " + FormatI32(sent);
+			error = "Cancelled, sent " + FormatI32(sent_count);
 			return false;
 		}
-		if (sent == 0)
+		if (sent_count == 0)
 		{
 			error = first_error.empty() ? "Send failed" : first_error;
 			return false;
 		}
-		if (failed > 0)
+		if (failed_count > 0)
 		{
-			error = "Sent " + FormatI32(sent) + ", fails: " + first_error;
+			error = "Sent " + FormatI32(sent_count) + ", fails: " + first_error;
 			return true;
 		}
-		error = "Sent " + FormatI32(sent);
+		error = "Sent " + FormatI32(sent_count);
 		return true;
 	}
 

@@ -21,6 +21,7 @@ namespace AvirA
 		m_spam_count = m_store.SpamCount();
 		m_spam_delay = m_store.SpamDelay();
 		m_spam_numbers = m_store.SpamNumbers();
+		m_spam_threads = m_store.SpamThreads();
 		m_sender_del_count = m_store.SenderDelCount();
 		m_filter.m_limit = m_store.CleanLimit();
 		m_filter.m_only_text = m_store.CleanOnly();
@@ -316,10 +317,11 @@ namespace AvirA
 		int count = m_spam_count;
 		int delay = m_spam_delay;
 		bool numbers = m_spam_numbers;
+		int workers = m_spam_threads;
 		std::vector<std::string> account_ids = m_store.SenderAccounts();
 		std::vector<C_Store::S_Account> accounts = m_store.Accounts();
 		std::string active = m_store.MeId();
-		std::thread([this, spammer, copy, files, spam, count, delay, numbers, account_ids, accounts, active]() {
+		std::thread([this, spammer, copy, files, spam, count, delay, numbers, workers, account_ids, accounts, active]() {
 			std::vector<C_DiscordClient> clients;
 			std::vector<std::string> labels;
 			std::vector<C_DiscordClient*> pointers;
@@ -371,6 +373,7 @@ namespace AvirA
 			options.m_repeat = spam ? count : 1;
 			options.m_delay_ms = delay;
 			options.m_numbers = numbers && spam;
+			options.m_workers = workers;
 			options.m_delay_view = &m_spam_delay_now;
 			std::string error;
 			spammer->SendTargets(targets, copy, files, options, error, &m_spam_done, &m_spam_total);
@@ -925,24 +928,32 @@ namespace AvirA
 		if (ImGui::Checkbox("Spam", &spam_on))
 		{
 			m_spam_mode = spam_on;
-			m_store.SetSpam(spam_on, m_spam_count, m_spam_delay, m_spam_numbers);
+			m_store.SetSpam(spam_on, m_spam_count, m_spam_delay, m_spam_numbers, m_spam_threads);
 			m_store_dirty = true;
 		}
 		if (m_spam_mode)
 		{
 			ImGui::SameLine();
-			ImGui::PushItemWidth(110);
+			ImGui::PushItemWidth(90);
 			if (ImGui::SliderInt("Times", &m_spam_count, 2, 50))
 			{
-				m_store.SetSpam(m_spam_mode, m_spam_count, m_spam_delay, m_spam_numbers);
+				m_store.SetSpam(m_spam_mode, m_spam_count, m_spam_delay, m_spam_numbers, m_spam_threads);
 				m_store_dirty = true;
 			}
 			ImGui::PopItemWidth();
 			ImGui::SameLine();
-			ImGui::PushItemWidth(150);
-			if (ImGui::SliderInt("Delay ms", &m_spam_delay, 200, 10000))
+			ImGui::PushItemWidth(130);
+			if (ImGui::SliderInt("Delay ms", &m_spam_delay, 50, 10000))
 			{
-				m_store.SetSpam(m_spam_mode, m_spam_count, m_spam_delay, m_spam_numbers);
+				m_store.SetSpam(m_spam_mode, m_spam_count, m_spam_delay, m_spam_numbers, m_spam_threads);
+				m_store_dirty = true;
+			}
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			ImGui::PushItemWidth(90);
+			if (ImGui::SliderInt("Threads", &m_spam_threads, 1, 4))
+			{
+				m_store.SetSpam(m_spam_mode, m_spam_count, m_spam_delay, m_spam_numbers, m_spam_threads);
 				m_store_dirty = true;
 			}
 			ImGui::PopItemWidth();
@@ -951,7 +962,7 @@ namespace AvirA
 			if (ImGui::Checkbox("Numbers", &numbers))
 			{
 				m_spam_numbers = numbers;
-				m_store.SetSpam(m_spam_mode, m_spam_count, m_spam_delay, m_spam_numbers);
+				m_store.SetSpam(m_spam_mode, m_spam_count, m_spam_delay, m_spam_numbers, m_spam_threads);
 				m_store_dirty = true;
 			}
 		}

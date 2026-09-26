@@ -76,8 +76,9 @@ namespace AvirA
 		int SpamCount() const;
 		int SpamDelay() const;
 		bool SpamNumbers() const;
+		int SpamThreads() const;
 		int SenderDelCount() const;
-		void SetSpam(bool on, int count, int delay, bool numbers);
+		void SetSpam(bool on, int count, int delay, bool numbers, int threads);
 		void SetSenderDelCount(int value);
 
 	private:
@@ -108,6 +109,7 @@ namespace AvirA
 		int m_spam_count = 5;
 		int m_spam_delay = 1500;
 		bool m_spam_numbers = true;
+		int m_spam_threads = 1;
 		int m_sender_del_count = 10;
 	};
 }

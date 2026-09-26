@@ -28,6 +28,7 @@ namespace AvirA
 		int m_repeat = 1;
 		int m_delay_ms = 900;
 		bool m_numbers = false;
+		int m_workers = 1;
 		std::atomic<int>* m_delay_view = nullptr;
 	};
 
@@ -60,5 +61,6 @@ namespace AvirA
 		std::vector<S_GuildEntry> m_entries;
 		std::atomic<bool> m_sending = false;
 		std::atomic<bool> m_cancel = false;
+		std::mutex m_lock;
 	};
 }
