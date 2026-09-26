@@ -40,6 +40,27 @@ namespace AvirA
 						else if (h >= 'A' && h <= 'F')
 							code |= (unsigned)(h - 'A' + 10);
 					}
+					if (code >= 0xD800 && code <= 0xDBFF && at + 6 <= text.size() && text[at] == '\\' && text[at + 1] == 'u')
+					{
+						unsigned low = 0;
+						size_t save = at + 2;
+						for (int i = 0; i < 4; i++)
+						{
+							char h = text[save + i];
+							low <<= 4;
+							if (h >= '0' && h <= '9')
+								low |= (unsigned)(h - '0');
+							else if (h >= 'a' && h <= 'f')
+								low |= (unsigned)(h - 'a' + 10);
+							else if (h >= 'A' && h <= 'F')
+								low |= (unsigned)(h - 'A' + 10);
+						}
+						if (low >= 0xDC00 && low <= 0xDFFF)
+						{
+							code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
+							at = save + 4;
+						}
+					}
 					if (code < 0x80)
 						out.push_back((char)code);
 					else if (code < 0x800)
@@ -47,9 +68,16 @@ namespace AvirA
 						out.push_back((char)(0xC0 | (code >> 6)));
 						out.push_back((char)(0x80 | (code & 0x3F)));
 					}
-					else
+					else if (code < 0x10000)
 					{
 						out.push_back((char)(0xE0 | (code >> 12)));
+						out.push_back((char)(0x80 | ((code >> 6) & 0x3F)));
+						out.push_back((char)(0x80 | (code & 0x3F)));
+					}
+					else
+					{
+						out.push_back((char)(0xF0 | (code >> 18)));
+						out.push_back((char)(0x80 | ((code >> 12) & 0x3F)));
 						out.push_back((char)(0x80 | ((code >> 6) & 0x3F)));
 						out.push_back((char)(0x80 | (code & 0x3F)));
 					}

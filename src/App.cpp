@@ -1,6 +1,8 @@
 #include "App.hpp"
 #include "Theme.hpp"
 #include "imgui.h"
+#include <Windows.h>
+#include <commdlg.h>
 
 namespace AvirA
 {
@@ -19,6 +21,63 @@ namespace AvirA
 	void C_App::Shutdown()
 	{
 		m_store.Shutdown();
+	}
+
+	static std::string WideToUtf8(const std::wstring& wide)
+	{
+		if (wide.empty())
+			return "";
+		int need = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, nullptr, 0, nullptr, nullptr);
+		if (need <= 1)
+			return "";
+		std::string out;
+		out.resize((size_t)need - 1);
+		WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, &out[0], need, nullptr, nullptr);
+		return out;
+	}
+
+	static std::string Utf8Cut(const std::string& text, size_t max)
+	{
+		if (text.size() <= max)
+			return text;
+		size_t at = max;
+		while (at > 0 && (text[at] & 0xC0) == 0x80)
+			at--;
+		if (at == 0)
+			return text.substr(0, max);
+		return text.substr(0, at) + "...";
+	}
+
+	void C_App::PickFilesViaDialog()
+	{
+		wchar_t buffer[32768] = {};
+		OPENFILENAMEW dialog = {};
+		dialog.lStructSize = sizeof(dialog);
+		dialog.lpstrFile = buffer;
+		dialog.nMaxFile = 32767;
+		dialog.lpstrFilter = L"All files\0*.*\0Images\0*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp\0Videos\0*.mp4;*.mov;*.webm;*.mkv;*.avi\0";
+		dialog.nFilterIndex = 1;
+		dialog.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+		if (!GetOpenFileNameW(&dialog))
+			return;
+		std::wstring first = buffer;
+		size_t offset = first.size() + 1;
+		if (offset >= 32767 || buffer[offset] == L'\0')
+		{
+			std::string path = WideToUtf8(first);
+			if (!path.empty() && m_files.size() < 10)
+				m_files.push_back(path);
+			return;
+		}
+		std::wstring dir = first;
+		while (offset < 32767 && buffer[offset] != L'\0' && m_files.size() < 10)
+		{
+			std::wstring name = &buffer[offset];
+			offset += name.size() + 1;
+			std::string path = WideToUtf8(dir + L"\\" + name);
+			if (!path.empty())
+				m_files.push_back(path);
+		}
 	}
 
 	std::vector<S_Channel> C_App::FlatChannels()
@@ -459,14 +518,18 @@ namespace AvirA
 		ImGui::Text("Message");
 		ImGui::InputTextMultiline("##msg", m_message_edit, sizeof(m_message_edit), ImVec2(-1, 80));
 		ImGui::PushItemWidth(-110);
-		ImGui::InputTextWithHint("##file", "File path, Enter to add", m_file_edit, sizeof(m_file_edit), ImGuiInputTextFlags_EnterReturnsTrue);
+		bool submit_path = ImGui::InputTextWithHint("##file", "Path by hand, Enter to add", m_file_edit, sizeof(m_file_edit), ImGuiInputTextFlags_EnterReturnsTrue);
 		ImGui::PopItemWidth();
 		ImGui::SameLine();
 		if (ImGui::Button("Add file", ImVec2(100, 0)))
+			PickFilesViaDialog();
+		if (submit_path)
 		{
 			std::string path = Trimmed(m_file_edit);
 			if (!path.empty() && m_files.size() < 10)
 			{
+				if ((path.size() >= 2 && path.front() == '"' && path.back() == '"') || (path.size() >= 2 && path.front() == '\'' && path.back() == '\''))
+					path = path.substr(1, path.size() - 2);
 				m_files.push_back(path);
 				memset(m_file_edit, 0, sizeof(m_file_edit));
 			}
@@ -696,8 +759,7 @@ namespace AvirA
 			ImGui::TextDisabled("[%s] #%s", TimeString(item.m_message.m_stamp).c_str(), item.m_message.m_channel_name.c_str());
 			ImGui::SameLine();
 			std::string preview = item.m_message.m_text.empty() ? "(no text, file or embed)" : item.m_message.m_text;
-			if (preview.size() > 90)
-				preview = preview.substr(0, 90) + "...";
+			preview = Utf8Cut(preview, 140);
 			ImGui::TextWrapped("%s", preview.c_str());
 			ImGui::PopID();
 		}

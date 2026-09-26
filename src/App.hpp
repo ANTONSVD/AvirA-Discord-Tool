@@ -20,6 +20,7 @@ namespace AvirA
 		void Login();
 		void Logout();
 		void AddTracked();
+		void PickFilesViaDialog();
 		void RefreshSender();
 		void RefreshSenderChannels(size_t index);
 		void RefreshAllSenderChannels();
