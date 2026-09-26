@@ -72,6 +72,7 @@ namespace AvirA
 		m_spammer.Attach(&m_client);
 		m_cleaner.Attach(&m_client);
 		m_auto.Attach(&m_client);
+		m_typing.Attach(&m_client);
 		Load();
 		if (!m_token.empty())
 			m_client.SetToken(m_token);
@@ -82,6 +83,7 @@ namespace AvirA
 	{
 		m_tracker.Stop();
 		m_auto.Stop();
+		m_typing.Stop();
 		Save();
 	}
 
@@ -136,6 +138,19 @@ namespace AvirA
 		text += "limit=" + FormatI32(m_clean_limit) + "\n";
 		text += "only=" + std::string(m_clean_only ? "1" : "0") + "\n";
 		text += "ctext=" + Escaped(m_clean_text) + "\n";
+		text += "[typing]\n";
+		text += "typing_interval=" + FormatI32(m_typing.Interval()) + "\n";
+		{
+			auto picked = m_typing.Picked();
+			text += "typing_picks=";
+			for (size_t i = 0; i < picked.size(); i++)
+			{
+				if (i)
+					text += ",";
+				text += picked[i];
+			}
+			text += "\n";
+		}
 		text += "[accounts]\n";
 		text += "active=" + m_active_account + "\n";
 		for (size_t i = 0; i < m_accounts.size(); i++)
@@ -293,6 +308,23 @@ namespace AvirA
 				m_clean_only = Trimmed(line.substr(5)) == "1";
 			if (line.rfind("ctext=", 0) == 0)
 				m_clean_text = Unescaped(line.substr(6));
+			if (line.rfind("typing_interval=", 0) == 0)
+				m_typing.SetInterval(std::atoi(line.substr(16).c_str()));
+			if (line.rfind("typing_picks=", 0) == 0)
+			{
+				std::string list = line.substr(13);
+				size_t p = 0;
+				while (p < list.size())
+				{
+					size_t comma = list.find(',', p);
+					std::string id = Trimmed(list.substr(p, comma == std::string::npos ? std::string::npos : comma - p));
+					if (!id.empty())
+						m_typing.SetPick(id, true);
+					if (comma == std::string::npos)
+						break;
+					p = comma + 1;
+				}
+			}
 			if (line.rfind("active=", 0) == 0)
 				m_active_account = Trimmed(line.substr(7));
 			if (line.rfind("account=", 0) == 0)
@@ -417,6 +449,11 @@ namespace AvirA
 	C_Auto* C_Store::Auto()
 	{
 		return &m_auto;
+	}
+
+	C_Typing* C_Store::Typing()
+	{
+		return &m_typing;
 	}
 
 	std::string C_Store::Token() const

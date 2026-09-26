@@ -16,6 +16,7 @@ namespace AvirA
 		void DrawSender();
 		void DrawCleaner();
 		void DrawAutomatic();
+		void DrawTyping();
 		void DrawSettings();
 
 		void Login();
@@ -61,6 +62,7 @@ namespace AvirA
 		int m_track_interval = 20;
 		bool m_track_busy = false;
 		int m_auto_interval = 12;
+		int m_typing_interval = 8;
 		bool m_auto_busy = false;
 		bool m_auto_emoji_busy = false;
 		int m_auto_emoji_guild = 0;

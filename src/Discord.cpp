@@ -490,6 +490,35 @@ namespace AvirA
 		return false;
 	}
 
+	bool C_DiscordClient::SendTyping(const std::string& channel, std::string& error)
+	{
+		for (int attempt = 0; attempt < 2; attempt++)
+		{
+			S_HttpResult result = m_http.PostEmpty("/channels/" + channel + "/typing");
+			if (result.m_ok || result.m_status == 204)
+				return true;
+			if (result.m_status == 429)
+			{
+				C_Json root = C_Json::Parse(result.m_body);
+				double wait = 2.0;
+				const C_Json* found = root.Find("retry_after");
+				if (found && found->m_type == E_JsonType::Number)
+					wait = found->m_number;
+				if (wait < 0.5)
+					wait = 1.0;
+				if (wait > 15)
+					wait = 15;
+				std::this_thread::sleep_for(std::chrono::milliseconds((int)(wait * 1000)));
+				if (attempt == 1)
+					error = ShortError(result);
+				continue;
+			}
+			error = ShortError(result);
+			return false;
+		}
+		return false;
+	}
+
 	bool C_DiscordClient::DeleteMessage(const std::string& channel, const std::string& id)
 	{
 		S_HttpResult result = m_http.Delete("/channels/" + channel + "/messages/" + id);

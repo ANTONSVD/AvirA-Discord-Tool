@@ -86,6 +86,7 @@
   <ItemGroup>
     <ClCompile Include="src\App.cpp" />
     <ClCompile Include="src\Auto.cpp" />
+    <ClCompile Include="src\Typing.cpp" />
     <ClCompile Include="src\Cleaner.cpp" />
     <ClCompile Include="src\Discord.cpp" />
     <ClCompile Include="src\Http.cpp" />
@@ -109,6 +110,7 @@
   <ItemGroup>
     <ClInclude Include="src\App.hpp" />
     <ClInclude Include="src\Auto.hpp" />
+    <ClInclude Include="src\Typing.hpp" />
     <ClInclude Include="src\AvirA.hpp" />
     <ClInclude Include="src\Cleaner.hpp" />
     <ClInclude Include="src\Discord.hpp" />

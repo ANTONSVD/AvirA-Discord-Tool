@@ -88,6 +88,7 @@ namespace AvirA
 		bool FetchGuildEmojis(const std::string& guild, std::vector<S_GuildEmoji>& out);
 		bool ReplyText(const std::string& channel, const std::string& message, const std::string& text, std::string& error);
 		bool AddReaction(const std::string& channel, const std::string& message, const std::string& emoji, std::string& error);
+		bool SendTyping(const std::string& channel, std::string& error);
 		bool DeleteMessage(const std::string& channel, const std::string& id);
 		bool PostWebhook(const std::string& url, const std::string& text);
 		static std::string UrlEncode(const std::string& text);

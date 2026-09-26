@@ -3,6 +3,7 @@
 #include "Spammer.hpp"
 #include "Cleaner.hpp"
 #include "Auto.hpp"
+#include "Typing.hpp"
 
 namespace AvirA
 {
@@ -19,6 +20,7 @@ namespace AvirA
 		C_Spammer* Spammer();
 		C_Cleaner* Cleaner();
 		C_Auto* Auto();
+		C_Typing* Typing();
 
 		std::string Token() const;
 		void SetToken(const std::string& token);
@@ -63,6 +65,7 @@ namespace AvirA
 		C_Spammer m_spammer;
 		C_Cleaner m_cleaner;
 		C_Auto m_auto;
+		C_Typing m_typing;
 		std::string m_token;
 		std::string m_me_name;
 		std::string m_me_id;

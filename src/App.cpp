@@ -12,6 +12,7 @@ namespace AvirA
 		m_store.Initialize();
 		m_track_interval = m_store.Tracker()->Interval();
 		m_auto_interval = m_store.Auto()->Interval();
+		m_typing_interval = m_store.Typing()->Interval();
 		m_clean_guild_id = m_store.PendingCleanGuild();
 		m_clean_channel_id = m_store.PendingCleanChannel();
 		m_clean_resolve = true;
@@ -188,6 +189,7 @@ namespace AvirA
 	{
 		m_store.Tracker()->Stop();
 		m_store.Auto()->Stop();
+		m_store.Typing()->Stop();
 		m_store.SetToken("");
 		m_store.Client()->Clear();
 		m_store.SetMe("", "");
@@ -1246,12 +1248,88 @@ namespace AvirA
 		ImGui::EndChild();
 	}
 
+	void C_App::DrawTyping()
+	{
+		m_store.Typing()->SetSnapshot(FlatChannels());
+		ImGui::BeginChild("type_box", ImVec2(0, 96), true);
+		ImGui::Text("Typing");
+		ImGui::TextDisabled("Holds typing dots forever, refresh every few sec");
+		ImGui::PushItemWidth(140);
+		if (ImGui::SliderInt("Every, sec", &m_typing_interval, 5, 15))
+		{
+			m_store.Typing()->SetInterval(m_typing_interval);
+			m_store_dirty = true;
+		}
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		bool running = m_store.Typing()->Running();
+		if (C_Theme::FadedButton("##typerun", running ? "Stop" : "Start", running, 90))
+		{
+			if (running)
+				m_store.Typing()->Stop();
+			else
+				m_store.Typing()->Start();
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton("All"))
+		{
+			auto all = FlatChannels();
+			for (size_t i = 0; i < all.size(); i++)
+				m_store.Typing()->SetPick(all[i].m_id, true);
+			m_store_dirty = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton("None"))
+		{
+			m_store.Typing()->ClearPicks();
+			m_store_dirty = true;
+		}
+		ImGui::SameLine();
+		ImGui::TextDisabled("Picked: %llu", (unsigned long long)m_store.Typing()->PickedCount());
+		ImGui::EndChild();
+
+		auto states = m_store.Typing()->States();
+		ImGui::BeginChild("type_list", ImVec2(0, 0), true);
+		auto all = FlatChannels();
+		if (all.empty())
+		{
+			ImGui::TextDisabled("Empty. Load channels in Sender first.");
+			ImGui::EndChild();
+			return;
+		}
+		for (size_t i = 0; i < all.size(); i++)
+		{
+			bool picked = m_store.Typing()->IsPicked(all[i].m_id);
+			std::string label = "#" + all[i].m_name + "##t" + all[i].m_id;
+			if (ImGui::Checkbox(label.c_str(), &picked))
+			{
+				m_store.Typing()->SetPick(all[i].m_id, picked);
+				m_store_dirty = true;
+			}
+			ImGui::SameLine();
+			std::string info = "-";
+			for (size_t k = 0; k < states.size(); k++)
+			{
+				if (states[k].m_id == all[i].m_id)
+				{
+					if (!states[k].m_error.empty())
+						info = states[k].m_error;
+					else if (states[k].m_last > 0)
+						info = TimeString(states[k].m_last);
+					break;
+				}
+			}
+			ImGui::TextDisabled("%s", info.c_str());
+		}
+		ImGui::EndChild();
+	}
+
 	void C_App::DrawSettings()
 	{
 		ImGui::BeginChild("settings", ImVec2(0, 330), true);
 		ImGui::Text("About");
 		ImGui::TextDisabled("AvirA Discord Tool. Tokens live in your cfg next to the app, nothing sent anywhere except discord.");
-		ImGui::TextDisabled("Tracker polls profiles, Sender posts to picked channels, Cleaner deletes your messages.");
+		ImGui::TextDisabled("Tracker polls profiles, Sender posts, Cleaner deletes, Automatic replies, Typing holds dots.");
 		ImGui::Separator();
 		ImGui::Text("Accounts (%llu)", (unsigned long long)m_store.Accounts().size());
 		auto accounts = m_store.Accounts();
@@ -1299,12 +1377,12 @@ namespace AvirA
 		ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
 		ImGui::Begin("main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
 		DrawTopBar();
-		const char* tabs[] = { "Tracker", "Sender", "Cleaner", "Automatic", "Settings" };
-		for (int i = 0; i < 5; i++)
+		const char* tabs[] = { "Tracker", "Sender", "Cleaner", "Automatic", "Typing", "Settings" };
+		for (int i = 0; i < 6; i++)
 		{
 			if (i)
 				ImGui::SameLine();
-			if (C_Theme::FadedButton(("##tab" + FormatI32(i)).c_str(), tabs[i], m_tab == i, 120))
+			if (C_Theme::FadedButton(("##tab" + FormatI32(i)).c_str(), tabs[i], m_tab == i, 100))
 				m_tab = i;
 		}
 		ImGui::Separator();
@@ -1316,6 +1394,8 @@ namespace AvirA
 			DrawCleaner();
 		else if (m_tab == 3)
 			DrawAutomatic();
+		else if (m_tab == 4)
+			DrawTyping();
 		else
 			DrawSettings();
 		ImGui::End();
