@@ -57,6 +57,13 @@ namespace AvirA
 		std::string m_jump;
 	};
 
+	struct S_GuildEmoji
+	{
+		std::string m_id;
+		std::string m_name;
+		bool m_animated = false;
+	};
+
 	class C_DiscordClient
 	{
 	public:
@@ -77,8 +84,13 @@ namespace AvirA
 		bool SendFiles(const std::string& channel, const std::string& text, const std::vector<std::string>& paths, std::string& error);
 		bool FetchMessages(const std::string& channel, int limit, const std::string& before, std::vector<C_Json>& out);
 		bool FetchMyMessages(const std::string& channel, const std::string& me, int limit, std::vector<S_Message>& out);
+		bool FetchRecent(const std::string& channel, int limit, const std::string& after, std::vector<C_Json>& out);
+		bool FetchGuildEmojis(const std::string& guild, std::vector<S_GuildEmoji>& out);
+		bool ReplyText(const std::string& channel, const std::string& message, const std::string& text, std::string& error);
+		bool AddReaction(const std::string& channel, const std::string& message, const std::string& emoji, std::string& error);
 		bool DeleteMessage(const std::string& channel, const std::string& id);
 		bool PostWebhook(const std::string& url, const std::string& text);
+		static std::string UrlEncode(const std::string& text);
 
 		static S_Profile ProfileFromJson(const C_Json& root);
 		static std::string AvatarUrl(const C_Json& root);

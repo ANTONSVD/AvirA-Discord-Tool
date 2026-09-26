@@ -101,6 +101,11 @@ namespace AvirA
 		return Request("DELETE", m_base + path, "", "", {});
 	}
 
+	S_HttpResult C_Http::PutEmpty(const std::string& path)
+	{
+		return Request("PUT", m_base + path, "", "", {});
+	}
+
 	S_HttpResult C_Http::PostJson(const std::string& path, const std::string& json)
 	{
 		return Request("POST", m_base + path, json, "application/json", {});

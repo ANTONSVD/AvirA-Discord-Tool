@@ -11,6 +11,7 @@ namespace AvirA
 		m_boot = NowMillis();
 		m_store.Initialize();
 		m_track_interval = m_store.Tracker()->Interval();
+		m_auto_interval = m_store.Auto()->Interval();
 		std::string hook = m_store.Tracker()->Webhook()->Url();
 		strncpy_s(m_hook_edit, hook.c_str(), sizeof(m_hook_edit) - 1);
 		m_filter.m_limit = 200;
@@ -33,6 +34,42 @@ namespace AvirA
 		std::string out;
 		out.resize((size_t)need - 1);
 		WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, &out[0], need, nullptr, nullptr);
+		return out;
+	}
+
+	static std::string ShortEmojiMarks(const std::string& text)
+	{
+		std::string out;
+		size_t at = 0;
+		while (at < text.size())
+		{
+			size_t open = text.find('<', at);
+			if (open == std::string::npos)
+			{
+				out += text.substr(at);
+				break;
+			}
+			bool animated = text.compare(open, 3, "<a:") == 0;
+			bool plain = text.compare(open, 2, "<:") == 0;
+			if (!animated && !plain)
+			{
+				out += text.substr(at, open - at + 1);
+				at = open + 1;
+				continue;
+			}
+			size_t name_at = open + (animated ? 3 : 2);
+			size_t colon = text.find(':', name_at);
+			size_t close = colon == std::string::npos ? std::string::npos : text.find('>', colon + 1);
+			if (colon == std::string::npos || close == std::string::npos || close - colon > 32 || colon - name_at == 0 || colon - name_at > 32)
+			{
+				out += text.substr(at, open - at + 1);
+				at = open + 1;
+				continue;
+			}
+			out += text.substr(at, open - at);
+			out += ":" + text.substr(name_at, colon - name_at) + ":";
+			at = close + 1;
+		}
 		return out;
 	}
 
@@ -118,6 +155,8 @@ namespace AvirA
 
 	void C_App::Logout()
 	{
+		m_store.Tracker()->Stop();
+		m_store.Auto()->Stop();
 		m_store.SetToken("");
 		m_store.Client()->Clear();
 		m_store.SetMe("", "");
@@ -340,7 +379,7 @@ namespace AvirA
 	void C_App::DrawTopBar()
 	{
 		ImGui::BeginChild("top", ImVec2(0, 64), true);
-		ImGui::Text("AvirA Discord Tool  v%s", AVIRA_DISCORD_VERSION);
+		ImGui::Text("AvirA Discord Tool");
 		ImGui::SameLine();
 		if (m_store.Logged())
 		{
@@ -605,13 +644,14 @@ namespace AvirA
 			S_GuildEntry& entry = entries[i];
 			std::string star = entry.m_favorite ? "[*] " : "[ ] ";
 			std::string title = star + entry.m_guild.m_name;
-			bool open = ImGui::CollapsingHeader((title + "##g" + entry.m_guild.m_id).c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+			bool open = ImGui::CollapsingHeader((title + "##g" + entry.m_guild.m_id).c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap);
 			ImGui::SameLine(ImGui::GetWindowWidth() - 90);
 			bool fav = entry.m_favorite;
 			if (ImGui::SmallButton(((fav ? "Unfav##" : "Fav##") + entry.m_guild.m_id).c_str()))
 			{
 				m_store.Spammer()->SetFavorite(entry.m_guild.m_id, !fav);
 				m_store.Save();
+				break;
 			}
 			if (!open)
 				continue;
@@ -759,10 +799,304 @@ namespace AvirA
 			ImGui::TextDisabled("[%s] #%s", TimeString(item.m_message.m_stamp).c_str(), item.m_message.m_channel_name.c_str());
 			ImGui::SameLine();
 			std::string preview = item.m_message.m_text.empty() ? "(no text, file or embed)" : item.m_message.m_text;
-			preview = Utf8Cut(preview, 140);
+			preview = Utf8Cut(ShortEmojiMarks(preview), 140);
 			ImGui::TextWrapped("%s", preview.c_str());
 			ImGui::PopID();
 		}
+		ImGui::EndChild();
+	}
+
+	void C_App::DrawAutomatic()
+	{
+		m_store.Auto()->SetSnapshot(FlatChannels());
+		ImGui::BeginChild("auto_add", ImVec2(0, 96), true);
+		ImGui::Text("Automatic");
+		ImGui::TextDisabled("Replies and reactions on his new messages until you switch off");
+		ImGui::PushItemWidth(220);
+		ImGui::InputTextWithHint("##autoid", "User id, like 123456789", m_auto_id_edit, sizeof(m_auto_id_edit));
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (ImGui::Button("Add", ImVec2(90, 0)))
+		{
+			m_auto_error.clear();
+			std::string error;
+			if (!m_store.Auto()->AddTarget(Trimmed(m_auto_id_edit), error))
+				m_auto_error = error;
+			else
+			{
+				memset(m_auto_id_edit, 0, sizeof(m_auto_id_edit));
+				m_store.Save();
+			}
+		}
+		ImGui::SameLine();
+		ImGui::PushItemWidth(140);
+		if (ImGui::SliderInt("Every, sec", &m_auto_interval, 5, 120))
+		{
+			m_store.Auto()->SetInterval(m_auto_interval);
+			m_store.Save();
+		}
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		bool running = m_store.Auto()->Running();
+		if (C_Theme::FadedButton("##autorun", running ? "Stop" : "Start", running, 90))
+		{
+			if (running)
+				m_store.Auto()->Stop();
+			else
+				m_store.Auto()->Start();
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Check now"))
+		{
+			if (!m_auto_busy)
+			{
+				m_auto_busy = true;
+				C_Auto* auto_tool = m_store.Auto();
+				std::thread([this, auto_tool]() {
+					auto_tool->PollOnce();
+					m_auto_busy = false;
+				}).detach();
+			}
+		}
+		if (m_auto_busy)
+		{
+			ImGui::SameLine();
+			C_Theme::Spinner("##autospin", 16, 2.5f);
+		}
+		if (!m_auto_error.empty())
+			ImGui::TextColored(ImVec4(1, 0.45f, 0.45f, 1), "%s", m_auto_error.c_str());
+		ImGui::EndChild();
+
+		auto list = m_store.Auto()->All();
+		if (list.empty())
+		{
+			ImGui::BeginChild("auto_empty", ImVec2(0, 120), true);
+			ImGui::TextDisabled("Nobody here yet. Paste an id above.");
+			ImGui::EndChild();
+			return;
+		}
+		if (m_auto_tab.empty() && !list.empty())
+			m_auto_tab = list[0]->m_id;
+		ImGui::BeginChild("auto_tabs", ImVec2(0, 46), true);
+		for (size_t i = 0; i < list.size(); i++)
+		{
+			S_AutoTarget* item = list[i];
+			std::string label = item->m_name.empty() ? item->m_id : item->m_name;
+			if (!item->m_on)
+				label = "[off] " + label;
+			bool active = m_auto_tab == item->m_id;
+			if (i)
+				ImGui::SameLine();
+			if (C_Theme::FadedButton(("##a" + item->m_id).c_str(), label.c_str(), active))
+				m_auto_tab = item->m_id;
+		}
+		ImGui::EndChild();
+
+		S_AutoTarget* current = m_store.Auto()->Find(m_auto_tab);
+		if (!current && !list.empty())
+			current = list[0];
+		if (!current)
+			return;
+		std::string self_id = current->m_id;
+		ImGui::BeginChild("auto_view", ImVec2(0, 330), true);
+		ImGui::Text("%s", current->m_name.empty() ? current->m_id.c_str() : (current->m_name + "  " + current->m_id).c_str());
+		ImGui::SameLine();
+		bool on = current->m_on;
+		if (ImGui::Checkbox(("Enabled##" + self_id).c_str(), &on))
+		{
+			m_store.Auto()->SetTargetOn(self_id, on);
+			m_store.Save();
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton(("Remove##" + self_id).c_str()))
+		{
+			m_store.Auto()->RemoveTarget(self_id);
+			m_auto_tab.clear();
+			m_store.Save();
+			ImGui::EndChild();
+			return;
+		}
+		ImGui::Separator();
+		bool reply_on = current->m_reply_on;
+		if (ImGui::Checkbox(("Auto reply##" + self_id).c_str(), &reply_on))
+		{
+			m_store.Auto()->SetReplyOn(self_id, reply_on);
+			m_store.Save();
+		}
+		ImGui::PushItemWidth(-90);
+		bool submit_reply = ImGui::InputTextWithHint(("##reply" + self_id).c_str(), "Reply text, Enter to add", m_auto_reply_edit, sizeof(m_auto_reply_edit), ImGuiInputTextFlags_EnterReturnsTrue);
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		bool add_reply = ImGui::SmallButton(("Add##r" + self_id).c_str());
+		if ((submit_reply || add_reply) && !Trimmed(m_auto_reply_edit).empty())
+		{
+			if (m_store.Auto()->AddReply(self_id, m_auto_reply_edit))
+			{
+				memset(m_auto_reply_edit, 0, sizeof(m_auto_reply_edit));
+				m_store.Save();
+			}
+		}
+		for (size_t i = 0; i < current->m_replies.size(); i++)
+		{
+			ImGui::TextDisabled("%llu.", (unsigned long long)(i + 1));
+			ImGui::SameLine();
+			ImGui::TextWrapped("%s", current->m_replies[i].c_str());
+			ImGui::SameLine(ImGui::GetWindowWidth() - 40);
+			if (ImGui::SmallButton(("x##r" + self_id + FormatU64(i)).c_str()))
+			{
+				m_store.Auto()->RemoveReply(self_id, i);
+				m_store.Save();
+				break;
+			}
+		}
+		if (current->m_replies.empty())
+			ImGui::TextDisabled("No replies yet, they go round-robin.");
+		ImGui::Separator();
+		bool react_on = current->m_react_on;
+		if (ImGui::Checkbox(("Auto react##" + self_id).c_str(), &react_on))
+		{
+			m_store.Auto()->SetReactOn(self_id, react_on);
+			m_store.Save();
+		}
+		ImGui::PushItemWidth(220);
+		bool submit_emoji = ImGui::InputTextWithHint(("##emoji" + self_id).c_str(), "Paste emoji or name:id", m_auto_emoji_edit, sizeof(m_auto_emoji_edit), ImGuiInputTextFlags_EnterReturnsTrue);
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		bool click_emoji = ImGui::SmallButton(("Add##e" + self_id).c_str());
+		if ((submit_emoji || click_emoji) && !Trimmed(m_auto_emoji_edit).empty())
+		{
+			if (m_store.Auto()->AddEmoji(self_id, m_auto_emoji_edit))
+			{
+				memset(m_auto_emoji_edit, 0, sizeof(m_auto_emoji_edit));
+				m_store.Save();
+			}
+		}
+		for (size_t i = 0; i < current->m_emojis.size(); i++)
+		{
+			if (i)
+				ImGui::SameLine();
+			std::string label = current->m_emojis[i].Display() + "##x" + self_id + FormatU64(i);
+			if (ImGui::SmallButton(label.c_str()))
+			{
+				m_store.Auto()->RemoveEmoji(self_id, i);
+				m_store.Save();
+				break;
+			}
+		}
+		if (current->m_emojis.empty())
+			ImGui::TextDisabled("No emoji yet. Load guild emoji below or paste one.");
+		ImGui::TextDisabled("Click emoji to remove it.");
+		ImGui::Separator();
+		ImGui::TextDisabled("Guild emoji, click to add:");
+		auto& entries = m_store.Spammer()->Entries();
+		std::vector<const char*> guild_names;
+		guild_names.push_back("Pick server");
+		std::vector<std::string> guild_keep;
+		for (size_t i = 0; i < entries.size(); i++)
+			guild_keep.push_back(entries[i].m_guild.m_name);
+		for (size_t i = 0; i < guild_keep.size(); i++)
+			guild_names.push_back(guild_keep[i].c_str());
+		if (m_auto_emoji_guild >= (int)guild_names.size())
+			m_auto_emoji_guild = 0;
+		ImGui::PushItemWidth(200);
+		ImGui::Combo(("##emguild" + self_id).c_str(), &m_auto_emoji_guild, guild_names.data(), (int)guild_names.size());
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (m_auto_emoji_busy)
+		{
+			ImGui::BeginDisabled();
+			ImGui::SmallButton("Loading...");
+			ImGui::EndDisabled();
+		}
+		else
+		{
+			if (ImGui::SmallButton(("Load##em" + self_id).c_str()))
+			{
+				if (m_auto_emoji_guild > 0 && (size_t)(m_auto_emoji_guild - 1) < entries.size())
+				{
+					m_auto_emoji_busy = true;
+					std::string guild_id = entries[m_auto_emoji_guild - 1].m_guild.m_id;
+					C_DiscordClient* client = m_store.Client();
+					std::thread([this, client, guild_id]() {
+						std::vector<S_GuildEmoji> out;
+						client->FetchGuildEmojis(guild_id, out);
+						m_auto_emojis = out;
+						m_auto_emoji_busy = false;
+					}).detach();
+				}
+			}
+		}
+		ImGui::SameLine();
+		ImGui::PushItemWidth(160);
+		ImGui::InputTextWithHint(("##emfilter" + self_id).c_str(), "Filter by name", m_auto_emoji_filter, sizeof(m_auto_emoji_filter));
+		ImGui::PopItemWidth();
+		if (!m_auto_emojis.empty())
+		{
+			ImGui::BeginChild(("emgrid" + self_id).c_str(), ImVec2(0, 90), true);
+			std::string filter = Trimmed(m_auto_emoji_filter);
+			for (char& c : filter)
+				c = (char)tolower(c);
+			int shown = 0;
+			for (size_t i = 0; i < m_auto_emojis.size() && shown < 120; i++)
+			{
+				std::string name = m_auto_emojis[i].m_name;
+				std::string low = name;
+				for (char& c : low)
+					c = (char)tolower(c);
+				if (!filter.empty() && low.find(filter) == std::string::npos)
+					continue;
+				if (shown % 4 != 0)
+					ImGui::SameLine();
+				if (ImGui::SmallButton((":" + name + ":##em" + m_auto_emojis[i].m_id).c_str()))
+				{
+					if (m_store.Auto()->AddEmoji(self_id, name + ":" + m_auto_emojis[i].m_id))
+						m_store.Save();
+				}
+				shown++;
+			}
+			ImGui::EndChild();
+		}
+		ImGui::Separator();
+		ImGui::TextDisabled("Watch in channels (Sender channels must be loaded):");
+		auto all_channels = FlatChannels();
+		int watch_shown = 0;
+		for (size_t i = 0; i < all_channels.size() && watch_shown < 60; i++)
+		{
+			bool watched = m_store.Auto()->IsWatched(all_channels[i].m_id);
+			std::string label = "#" + all_channels[i].m_name + "##w" + all_channels[i].m_id;
+			if (ImGui::Checkbox(label.c_str(), &watched))
+			{
+				m_store.Auto()->SetWatch(all_channels[i].m_id, watched);
+				m_store.Save();
+			}
+			if ((watch_shown + 1) % 3 != 0)
+				ImGui::SameLine();
+			watch_shown++;
+		}
+		if (all_channels.empty())
+			ImGui::TextDisabled("Empty. Load channels in Sender first.");
+		else
+			ImGui::TextDisabled("Watched: %llu. Empty watch means first 30 loaded.", (unsigned long long)m_store.Auto()->WatchCount());
+		ImGui::Separator();
+		ImGui::TextDisabled("Log:");
+		ImGui::BeginChild(("autolog" + self_id).c_str(), ImVec2(0, 0), false);
+		for (int i = (int)current->m_logs.size() - 1; i >= 0; i--)
+		{
+			const S_AutoLog& log = current->m_logs[i];
+			ImVec4 color = ImVec4(0.93f, 0.93f, 0.94f, 1.0f);
+			if (log.m_kind == "reply")
+				color = ImVec4(0.45f, 0.85f, 0.55f, 1.0f);
+			else if (log.m_kind == "react")
+				color = ImVec4(0.55f, 0.75f, 1.0f, 1.0f);
+			else if (log.m_kind == "error")
+				color = ImVec4(1.0f, 0.45f, 0.45f, 1.0f);
+			ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.55f, 1), "[%s]", TimeString(log.m_stamp).c_str());
+			ImGui::SameLine();
+			ImGui::TextColored(color, "%s", ShortEmojiMarks(Utf8Cut(log.m_text, 160)).c_str());
+		}
+		if (current->m_logs.empty())
+			ImGui::TextDisabled("Nothing yet. Start and wait for his messages.");
+		ImGui::EndChild();
 		ImGui::EndChild();
 	}
 
@@ -791,12 +1125,12 @@ namespace AvirA
 		ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
 		ImGui::Begin("main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
 		DrawTopBar();
-		const char* tabs[] = { "Tracker", "Sender", "Cleaner", "Settings" };
-		for (int i = 0; i < 4; i++)
+		const char* tabs[] = { "Tracker", "Sender", "Cleaner", "Automatic", "Settings" };
+		for (int i = 0; i < 5; i++)
 		{
 			if (i)
 				ImGui::SameLine();
-			if (C_Theme::FadedButton(("##tab" + FormatI32(i)).c_str(), tabs[i], m_tab == i, 130))
+			if (C_Theme::FadedButton(("##tab" + FormatI32(i)).c_str(), tabs[i], m_tab == i, 120))
 				m_tab = i;
 		}
 		ImGui::Separator();
@@ -806,6 +1140,8 @@ namespace AvirA
 			DrawSender();
 		else if (m_tab == 2)
 			DrawCleaner();
+		else if (m_tab == 3)
+			DrawAutomatic();
 		else
 			DrawSettings();
 		ImGui::End();

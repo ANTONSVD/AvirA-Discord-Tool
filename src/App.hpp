@@ -15,6 +15,7 @@ namespace AvirA
 		void DrawTracker();
 		void DrawSender();
 		void DrawCleaner();
+		void DrawAutomatic();
 		void DrawSettings();
 
 		void Login();
@@ -42,16 +43,27 @@ namespace AvirA
 		char m_message_edit[2048] = {};
 		char m_file_edit[512] = {};
 		char m_clean_text[256] = {};
+		char m_auto_id_edit[64] = {};
+		char m_auto_reply_edit[512] = {};
+		char m_auto_emoji_edit[64] = {};
+		char m_auto_emoji_filter[64] = {};
 
 		std::vector<std::string> m_files;
 		std::string m_login_error;
 		std::string m_track_error;
 		std::string m_spam_error;
 		std::string m_clean_error;
+		std::string m_auto_error;
 		std::string m_log_tab;
+		std::string m_auto_tab;
 
 		int m_track_interval = 20;
 		bool m_track_busy = false;
+		int m_auto_interval = 12;
+		bool m_auto_busy = false;
+		bool m_auto_emoji_busy = false;
+		int m_auto_emoji_guild = 0;
+		std::vector<S_GuildEmoji> m_auto_emojis;
 
 		std::atomic<int> m_spam_done = 0;
 		std::atomic<int> m_spam_total = 0;

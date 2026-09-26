@@ -27,6 +27,7 @@ namespace AvirA
 
 		S_HttpResult Get(const std::string& path);
 		S_HttpResult Delete(const std::string& path);
+		S_HttpResult PutEmpty(const std::string& path);
 		S_HttpResult PostJson(const std::string& path, const std::string& json);
 		S_HttpResult PostJsonFull(const std::string& url, const std::string& json);
 		S_HttpResult PatchJson(const std::string& path, const std::string& json);

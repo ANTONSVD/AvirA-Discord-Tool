@@ -2,6 +2,7 @@
 #include "Tracker.hpp"
 #include "Spammer.hpp"
 #include "Cleaner.hpp"
+#include "Auto.hpp"
 
 namespace AvirA
 {
@@ -17,6 +18,7 @@ namespace AvirA
 		C_Tracker* Tracker();
 		C_Spammer* Spammer();
 		C_Cleaner* Cleaner();
+		C_Auto* Auto();
 
 		std::string Token() const;
 		void SetToken(const std::string& token);
@@ -33,6 +35,7 @@ namespace AvirA
 		C_Tracker m_tracker;
 		C_Spammer m_spammer;
 		C_Cleaner m_cleaner;
+		C_Auto m_auto;
 		std::string m_token;
 		std::string m_me_name;
 		std::string m_me_id;

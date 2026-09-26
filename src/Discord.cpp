@@ -376,10 +376,143 @@ namespace AvirA
 		return true;
 	}
 
+	bool C_DiscordClient::FetchRecent(const std::string& channel, int limit, const std::string& after, std::vector<C_Json>& out)
+	{
+		int count = limit <= 0 ? 25 : limit;
+		if (count > 100)
+			count = 100;
+		std::string path = "/channels/" + channel + "/messages?limit=" + FormatI32(count);
+		if (!after.empty())
+			path += "&after=" + after;
+		S_HttpResult result = m_http.Get(path);
+		if (!result.m_ok)
+			return false;
+		C_Json root = C_Json::Parse(result.m_body);
+		if (root.m_type != E_JsonType::List)
+			return false;
+		for (size_t i = 0; i < root.m_list.size(); i++)
+			out.push_back(root.m_list[i]);
+		return true;
+	}
+
+	bool C_DiscordClient::FetchGuildEmojis(const std::string& guild, std::vector<S_GuildEmoji>& out)
+	{
+		out.clear();
+		S_HttpResult result = m_http.Get("/guilds/" + guild + "/emojis");
+		if (!result.m_ok)
+			return false;
+		C_Json root = C_Json::Parse(result.m_body);
+		if (root.m_type != E_JsonType::List)
+			return false;
+		for (size_t i = 0; i < root.m_list.size(); i++)
+		{
+			const C_Json& item = root.m_list[i];
+			S_GuildEmoji emoji;
+			emoji.m_id = item.GetText("id");
+			emoji.m_name = item.GetText("name");
+			emoji.m_animated = item.GetBool("animated", false);
+			if (!emoji.m_id.empty() && !emoji.m_name.empty())
+				out.push_back(emoji);
+		}
+		std::sort(out.begin(), out.end(), [](const S_GuildEmoji& a, const S_GuildEmoji& b) {
+			return a.m_name < b.m_name;
+		});
+		return true;
+	}
+
+	bool C_DiscordClient::ReplyText(const std::string& channel, const std::string& message, const std::string& text, std::string& error)
+	{
+		if (Trimmed(text).empty())
+		{
+			error = "Empty text";
+			return false;
+		}
+		std::string payload = "{\"content\":" + C_Json::FromText(text).Dump() + ",\"message_reference\":{\"message_id\":\"" + message + "\"},\"allowed_mentions\":{\"replied_user\":false}}";
+		for (int attempt = 0; attempt < 3; attempt++)
+		{
+			S_HttpResult result = m_http.PostJson("/channels/" + channel + "/messages", payload);
+			if (result.m_ok)
+				return true;
+			if (result.m_status == 429)
+			{
+				C_Json root = C_Json::Parse(result.m_body);
+				double wait = 1.2;
+				const C_Json* found = root.Find("retry_after");
+				if (found && found->m_type == E_JsonType::Number)
+					wait = found->m_number;
+				if (wait < 0.2)
+					wait = 0.5;
+				if (wait > 10)
+					wait = 10;
+				std::this_thread::sleep_for(std::chrono::milliseconds((int)(wait * 1000)));
+				if (attempt == 2)
+					error = ShortError(result);
+				continue;
+			}
+			error = ShortError(result);
+			return false;
+		}
+		return false;
+	}
+
+	bool C_DiscordClient::AddReaction(const std::string& channel, const std::string& message, const std::string& emoji, std::string& error)
+	{
+		if (emoji.empty())
+		{
+			error = "Empty emoji";
+			return false;
+		}
+		std::string encoded = UrlEncode(emoji);
+		for (int attempt = 0; attempt < 3; attempt++)
+		{
+			S_HttpResult result = m_http.PutEmpty("/channels/" + channel + "/messages/" + message + "/reactions/" + encoded + "/@me");
+			if (result.m_ok || result.m_status == 204)
+				return true;
+			if (result.m_status == 429)
+			{
+				C_Json root = C_Json::Parse(result.m_body);
+				double wait = 1.2;
+				const C_Json* found = root.Find("retry_after");
+				if (found && found->m_type == E_JsonType::Number)
+					wait = found->m_number;
+				if (wait < 0.2)
+					wait = 0.5;
+				if (wait > 10)
+					wait = 10;
+				std::this_thread::sleep_for(std::chrono::milliseconds((int)(wait * 1000)));
+				if (attempt == 2)
+					error = ShortError(result);
+				continue;
+			}
+			error = ShortError(result);
+			return false;
+		}
+		return false;
+	}
+
 	bool C_DiscordClient::DeleteMessage(const std::string& channel, const std::string& id)
 	{
 		S_HttpResult result = m_http.Delete("/channels/" + channel + "/messages/" + id);
 		return result.m_ok || result.m_status == 404;
+	}
+
+	std::string C_DiscordClient::UrlEncode(const std::string& text)
+	{
+		std::string out;
+		char hex[] = "0123456789ABCDEF";
+		for (size_t i = 0; i < text.size(); i++)
+		{
+			unsigned char c = (unsigned char)text[i];
+			if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~')
+				out.push_back((char)c);
+			else
+			{
+				out.push_back('%');
+				out.push_back(hex[c >> 4]);
+				out.push_back(hex[c & 15]);
+			}
+		}
+		return out;
 	}
 
 	bool C_DiscordClient::PostWebhook(const std::string& url, const std::string& text)

@@ -140,9 +140,9 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmd, int show)
 		static const ImWchar cyrillic[] = { 0x0400, 0x04FF, 0 };
 		io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Tahoma.ttf", 13.0f, &merge, cyrillic);
 		io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\Consola.ttf", 13.0f, &merge, cyrillic);
-		static const ImWchar emoji[] = { 0x2190, 0x21FF, 0x2600, 0x27BF, 0x2B00, 0x2BFF, 0xFE00, 0xFE0F, 0x1F300, 0x1FAFF, 0 };
-		io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\seguiemj.ttf", 13.0f, &merge, emoji);
+		static const ImWchar emoji[] = { 0x200D, 0x200D, 0x20D0, 0x20FF, 0x2100, 0x214F, 0x2190, 0x21FF, 0x2300, 0x23FF, 0x2460, 0x24FF, 0x25A0, 0x25FF, 0x2600, 0x27BF, 0x2B00, 0x2BFF, 0xFE00, 0xFE0F, 0x1F000, 0x1FAFF, 0xE0020, 0xE007F, 0 };
 		io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\seguisym.ttf", 13.0f, &merge, emoji);
+		io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\seguiemj.ttf", 13.0f, &merge, emoji);
 	}
 	C_Theme::Apply();
 	ImGui_ImplWin32_Init(window);
