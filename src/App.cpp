@@ -1955,10 +1955,19 @@ namespace AvirA
 		if (ImGui::CollapsingHeader("Spam", ImGuiTreeNodeFlags_DefaultOpen))
 		{
 			const char* modes[] = { "Normal", "TTS", "Silent", "Fake user", "Thread", "Embed" };
+			const char* mode_help[] = {
+				"Plain text, nothing special.",
+				"Voice message, discord reads it out loud.",
+				"No ping and no notification for anyone.",
+				"Custom name and avatar on the message.",
+				"Sends into a thread or forum post by its id.",
+				"Colored card with title and text, color random each time."
+			};
 			ImGui::PushItemWidth(150);
 			ImGui::Combo("Mode", &m_wh_mode, modes, 6);
 			ImGui::PopItemWidth();
 			ImGui::SameLine();
+			ImGui::TextDisabled("%s", mode_help[m_wh_mode < 0 || m_wh_mode > 5 ? 0 : m_wh_mode]);
 			ImGui::PushItemWidth(110);
 			ImGui::SliderInt("Count", &m_wh_count, 1, 500);
 			ImGui::PopItemWidth();
