@@ -85,6 +85,7 @@ namespace AvirA
 		void SetDeleteAfter(const std::string& id, int seconds);
 		void SetDeleteScope(const std::string& id, int scope);
 		void SetAccounts(const std::vector<S_AutoAccount>& accounts);
+		bool TestLlm(const std::string& key, const std::string& endpoint, const std::string& model, std::string& out, std::string& error);
 		void SetReactOn(const std::string& id, bool value);
 		bool AddEmoji(const std::string& id, const std::string& raw);
 		void RemoveEmoji(const std::string& id, size_t index);
@@ -110,6 +111,7 @@ namespace AvirA
 
 		C_DiscordClient* m_client = nullptr;
 		C_Http m_llm;
+		std::mutex m_llm_lock;
 		std::vector<S_AutoClient> m_accts;
 		std::vector<S_AutoTarget> m_items;
 		std::vector<S_Channel> m_snapshot;

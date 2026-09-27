@@ -1697,6 +1697,7 @@ namespace AvirA
 			m_store.Auto()->RemoveTarget(self_id);
 			m_auto_tab.clear();
 			m_auto_llm_for.clear();
+			m_llm_test.clear();
 			m_store.Save();
 			ImGui::EndChild();
 			return;
@@ -1711,6 +1712,7 @@ namespace AvirA
 			strncpy_s(m_auto_llm_model, model.c_str(), sizeof(m_auto_llm_model) - 1);
 			strncpy_s(m_auto_context, current->m_context.c_str(), sizeof(m_auto_context) - 1);
 			m_auto_llm_for = self_id;
+			m_llm_test.clear();
 		}
 		{
 			std::vector<S_AutoAccount> push;
@@ -1884,6 +1886,36 @@ namespace AvirA
 				m_store_dirty = true;
 			}
 			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			if (m_llm_test_busy)
+			{
+				ImGui::BeginDisabled();
+				ImGui::SmallButton("Testing...");
+				ImGui::EndDisabled();
+			}
+			else
+			{
+				if (ImGui::SmallButton(("Test##" + self_id).c_str()))
+				{
+					m_llm_test.clear();
+					m_llm_test_busy = true;
+					C_Auto* auto_tool = m_store.Auto();
+					std::string key = m_auto_llm_key;
+					std::string url = m_auto_llm_endpoint;
+					std::string model = m_auto_llm_model;
+					std::thread([this, auto_tool, key, url, model]() {
+						std::string out;
+						std::string error;
+						if (auto_tool->TestLlm(key, url, model, out, error))
+							m_llm_test = "OK: " + out.substr(0, 160);
+						else
+							m_llm_test = "FAIL: " + error;
+						m_llm_test_busy = false;
+					}).detach();
+				}
+			}
+			if (!m_llm_test.empty())
+				ImGui::TextDisabled("%s", m_llm_test.c_str());
 			if (ImGui::InputTextMultiline(("##llmctx" + self_id).c_str(), m_auto_context, sizeof(m_auto_context), ImVec2(-1, 80)))
 			{
 				m_store.Auto()->SetContext(self_id, m_auto_context);

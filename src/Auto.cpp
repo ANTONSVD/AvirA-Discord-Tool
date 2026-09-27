@@ -354,8 +354,14 @@ namespace AvirA
 		}
 	}
 
+	bool C_Auto::TestLlm(const std::string& key, const std::string& endpoint, const std::string& model, std::string& out, std::string& error)
+	{
+		return ReplyLlm(key, endpoint, model, "", "ping", out, error);
+	}
+
 	bool C_Auto::ReplyLlm(const std::string& key, const std::string& endpoint, const std::string& model, const std::string& custom, const std::string& text, std::string& out, std::string& error)
 	{
+		std::lock_guard<std::mutex> guard(m_llm_lock);
 		if (key.empty() || text.empty())
 		{
 			error = "No key or empty text";
@@ -383,7 +389,31 @@ namespace AvirA
 		payload.Set("max_tokens", (i64)300);
 		m_llm.SetToken("Bearer " + key);
 		m_llm.SetSite("https://github.com/ANTONSVD/AvirA-Discord-Tool", "AvirA Discord Tool");
-		S_HttpResult result = m_llm.PostJsonFull(endpoint.empty() ? "https://openrouter.ai/api/v1/chat/completions" : endpoint, payload.Dump());
+		std::string target_url = endpoint.empty() ? "https://openrouter.ai/api/v1/chat/completions" : endpoint;
+		S_HttpResult result = m_llm.PostJsonFull(target_url, payload.Dump());
+		if (!result.m_ok && (result.m_status == 429 || result.m_status >= 500))
+		{
+			C_Json busy = C_Json::Parse(result.m_body);
+			double wait = 5;
+			const C_Json* found = busy.Find("retry_after");
+			if (found && found->m_type == E_JsonType::Number)
+				wait = found->m_number;
+			const C_Json* nested_wait = busy.Find("error");
+			if (nested_wait)
+			{
+				const C_Json* inner = nested_wait->Find("retry_after");
+				if (inner && inner->m_type == E_JsonType::Number)
+					wait = inner->m_number;
+			}
+			if (wait < 1)
+				wait = 2;
+			if (wait > 20)
+				wait = 20;
+			for (int left = (int)(wait * 10); left > 0 && m_polling; left--)
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			if (m_polling)
+				result = m_llm.PostJsonFull(target_url, payload.Dump());
+		}
 		m_llm.ClearToken();
 		if (!result.m_ok)
 		{
@@ -408,6 +438,10 @@ namespace AvirA
 		}
 		const C_Json* message = choices->m_list[0].Find("message");
 		std::string answer = Trimmed(message ? message->GetText("content") : "");
+		if (answer.empty() && message)
+			answer = Trimmed(message->GetText("reasoning_content"));
+		if (answer.empty() && message)
+			answer = Trimmed(message->GetText("reasoning"));
 		if (answer.empty())
 		{
 			error = "Empty llm answer";
