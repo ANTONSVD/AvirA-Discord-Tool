@@ -265,7 +265,7 @@ namespace AvirA
 		return out;
 	}
 
-	std::vector<S_SendTarget> C_Spammer::BuildMultiTargets(const std::vector<C_DiscordClient*>& clients, const std::vector<std::string>& labels)
+	std::vector<S_SendTarget> C_Spammer::BuildMultiTargets(const std::vector<C_DiscordClient*>& clients, const std::vector<std::string>& labels, const std::vector<std::string>& accounts)
 	{
 		std::vector<S_SendTarget> out;
 		for (size_t c = 0; c < clients.size() && c < labels.size(); c++)
@@ -276,15 +276,17 @@ namespace AvirA
 			{
 				for (size_t k = 0; k < m_entries[i].m_channels.size() && k < m_entries[i].m_picked.size(); k++)
 				{
-				if (m_entries[i].m_picked[k])
-				{
-					S_SendTarget target;
-					target.m_client = clients[c];
-					target.m_label = labels[c] + " @ " + m_entries[i].m_guild.m_name + " #" + m_entries[i].m_channels[k].m_name;
-					target.m_channel = m_entries[i].m_channels[k].m_id;
-					target.m_guild = m_entries[i].m_guild.m_id;
-					out.push_back(target);
-				}
+					if (m_entries[i].m_picked[k])
+					{
+						S_SendTarget target;
+						target.m_client = clients[c];
+						target.m_label = labels[c] + " @ " + m_entries[i].m_guild.m_name + " #" + m_entries[i].m_channels[k].m_name;
+						target.m_channel = m_entries[i].m_channels[k].m_id;
+						target.m_guild = m_entries[i].m_guild.m_id;
+						if (c < accounts.size())
+							target.m_account = accounts[c];
+						out.push_back(target);
+					}
 				}
 			}
 		}
@@ -330,6 +332,10 @@ namespace AvirA
 		size_t jobs = targets.size() * (size_t)repeat;
 		m_sending = true;
 		m_cancel = false;
+		{
+			std::lock_guard<std::mutex> guard(m_lock);
+			m_last_batch.clear();
+		}
 		if (total)
 			*total = (int)jobs;
 		if (done)
@@ -352,7 +358,8 @@ namespace AvirA
 					if (options.m_numbers)
 						message += " ||" + FormatU64(counter.fetch_add(1)) + "||";
 					std::string item_error;
-					bool ok = targets[i].m_client && targets[i].m_client->HasToken() && targets[i].m_client->SendFiles(targets[i].m_channel, message, files, item_error);
+					std::string sent_id;
+					bool ok = targets[i].m_client && targets[i].m_client->HasToken() && targets[i].m_client->SendFiles(targets[i].m_channel, message, files, item_error, &sent_id);
 					{
 						std::lock_guard<std::mutex> guard(m_lock);
 						if (!targets[i].m_guild.empty())
@@ -360,6 +367,15 @@ namespace AvirA
 							S_GuildEntry* entry = FindEntry(targets[i].m_guild);
 							if (entry)
 								entry->m_last_send = ok ? "ok" : item_error;
+						}
+						if (ok && !sent_id.empty())
+						{
+							S_SentItem item;
+							item.m_channel = targets[i].m_channel;
+							item.m_id = sent_id;
+							item.m_label = targets[i].m_label;
+							item.m_account = targets[i].m_account;
+							m_last_batch.push_back(item);
 						}
 						if (!ok)
 						{
@@ -416,6 +432,24 @@ namespace AvirA
 		}
 		error = "Sent " + FormatI32(sent_count);
 		return true;
+	}
+
+	std::vector<S_SentItem> C_Spammer::LastBatch() const
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		return m_last_batch;
+	}
+
+	size_t C_Spammer::LastBatchCount() const
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		return m_last_batch.size();
+	}
+
+	void C_Spammer::ClearLastBatch()
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		m_last_batch.clear();
 	}
 
 	bool C_Spammer::SendAll(const std::string& text, const std::vector<std::string>& files, std::string& error, std::atomic<int>* done, std::atomic<int>* total)

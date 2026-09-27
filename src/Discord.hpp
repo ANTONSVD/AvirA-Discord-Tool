@@ -81,8 +81,8 @@ namespace AvirA
 		static bool SendableKind(int kind);
 		static std::string KindLabel(int kind);
 		static std::string ShortError(const S_HttpResult& result);
-		bool SendText(const std::string& channel, const std::string& text, std::string& error);
-		bool SendFiles(const std::string& channel, const std::string& text, const std::vector<std::string>& paths, std::string& error);
+		bool SendText(const std::string& channel, const std::string& text, std::string& error, std::string* out_id = nullptr);
+		bool SendFiles(const std::string& channel, const std::string& text, const std::vector<std::string>& paths, std::string& error, std::string* out_id = nullptr);
 		bool FetchMessages(const std::string& channel, int limit, const std::string& before, std::vector<C_Json>& out);
 		bool FetchMyMessages(const std::string& channel, const std::string& me, int limit, std::vector<S_Message>& out);
 		bool FetchRecent(const std::string& channel, int limit, const std::string& after, std::vector<C_Json>& out);

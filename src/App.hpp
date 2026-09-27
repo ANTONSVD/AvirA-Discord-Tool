@@ -30,6 +30,7 @@ namespace AvirA
 		void SendSpam();
 		void SendSpamWith(const std::string& text);
 		void DeleteSenderMine();
+		void DeleteLastBatch();
 		void RefreshCleaner();
 		void DeleteCleaner();
 		void LoadDMs();
@@ -97,6 +98,9 @@ namespace AvirA
 		bool m_sdel_busy = false;
 		std::atomic<int> m_sdel_done = 0;
 		std::atomic<int> m_sdel_total = 0;
+		bool m_undel_busy = false;
+		std::atomic<int> m_undel_done = 0;
+		std::atomic<int> m_undel_total = 0;
 
 		std::atomic<int> m_clean_done = 0;
 		bool m_clean_busy = false;

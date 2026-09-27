@@ -279,7 +279,7 @@ namespace AvirA
 		return true;
 	}
 
-	bool C_DiscordClient::SendText(const std::string& channel, const std::string& text, std::string& error)
+	bool C_DiscordClient::SendText(const std::string& channel, const std::string& text, std::string& error, std::string* out_id)
 	{
 		if (Trimmed(text).empty())
 		{
@@ -292,7 +292,11 @@ namespace AvirA
 		{
 			S_HttpResult result = m_http.PostJson("/channels/" + channel + "/messages", body.Dump());
 			if (result.m_ok)
+			{
+				if (out_id)
+					*out_id = C_Json::Parse(result.m_body).GetText("id");
 				return true;
+			}
 			if (result.m_status == 429)
 			{
 				C_Json root = C_Json::Parse(result.m_body);
@@ -315,10 +319,10 @@ namespace AvirA
 		return false;
 	}
 
-	bool C_DiscordClient::SendFiles(const std::string& channel, const std::string& text, const std::vector<std::string>& paths, std::string& error)
+	bool C_DiscordClient::SendFiles(const std::string& channel, const std::string& text, const std::vector<std::string>& paths, std::string& error, std::string* out_id)
 	{
 		if (paths.empty())
-			return SendText(channel, text, error);
+			return SendText(channel, text, error, out_id);
 		std::vector<std::string> alive;
 		for (size_t i = 0; i < paths.size() && i < 10; i++)
 		{
@@ -344,7 +348,11 @@ namespace AvirA
 		{
 			S_HttpResult result = m_http.PostMultipart("/channels/" + channel + "/messages", body.Dump(), files);
 			if (result.m_ok)
+			{
+				if (out_id)
+					*out_id = C_Json::Parse(result.m_body).GetText("id");
 				return true;
+			}
 			if (result.m_status == 429)
 			{
 				C_Json root = C_Json::Parse(result.m_body);

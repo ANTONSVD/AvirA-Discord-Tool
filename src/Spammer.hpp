@@ -21,6 +21,7 @@ namespace AvirA
 		std::string m_label;
 		std::string m_channel;
 		std::string m_guild;
+		std::string m_account;
 	};
 
 	struct S_SendOptions
@@ -30,6 +31,14 @@ namespace AvirA
 		bool m_numbers = false;
 		int m_workers = 1;
 		std::atomic<int>* m_delay_view = nullptr;
+	};
+
+	struct S_SentItem
+	{
+		std::string m_channel;
+		std::string m_id;
+		std::string m_label;
+		std::string m_account;
 	};
 
 	class C_Spammer
@@ -49,18 +58,22 @@ namespace AvirA
 		size_t PickedCount() const;
 		void ClearPicks();
 		std::vector<S_SendTarget> BuildSingleTargets();
-		std::vector<S_SendTarget> BuildMultiTargets(const std::vector<C_DiscordClient*>& clients, const std::vector<std::string>& labels);
+		std::vector<S_SendTarget> BuildMultiTargets(const std::vector<C_DiscordClient*>& clients, const std::vector<std::string>& labels, const std::vector<std::string>& accounts);
 
 		bool SendAll(const std::string& text, const std::vector<std::string>& files, std::string& error, std::atomic<int>* done = nullptr, std::atomic<int>* total = nullptr);
 		bool SendTargets(const std::vector<S_SendTarget>& targets, const std::string& text, const std::vector<std::string>& files, const S_SendOptions& options, std::string& error, std::atomic<int>* done = nullptr, std::atomic<int>* total = nullptr);
+		std::vector<S_SentItem> LastBatch() const;
+		size_t LastBatchCount() const;
+		void ClearLastBatch();
 		bool Sending() const;
 		void Cancel();
 
 	private:
 		C_DiscordClient* m_client = nullptr;
 		std::vector<S_GuildEntry> m_entries;
+		std::vector<S_SentItem> m_last_batch;
 		std::atomic<bool> m_sending = false;
 		std::atomic<bool> m_cancel = false;
-		std::mutex m_lock;
+		mutable std::mutex m_lock;
 	};
 }

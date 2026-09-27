@@ -201,6 +201,7 @@ namespace AvirA
 		m_store.Client()->Clear();
 		m_store.SetMe("", "");
 		m_store.Spammer()->Entries().clear();
+		m_store.Spammer()->ClearLastBatch();
 		m_store.Cleaner()->Clear();
 		m_dm_channels.clear();
 		m_dm_loaded = false;
@@ -324,6 +325,7 @@ namespace AvirA
 		std::thread([this, spammer, copy, files, spam, count, delay, numbers, workers, account_ids, accounts, active]() {
 			std::vector<C_DiscordClient> clients;
 			std::vector<std::string> labels;
+			std::vector<std::string> used_ids;
 			std::vector<C_DiscordClient*> pointers;
 			if (account_ids.empty())
 			{
@@ -334,6 +336,7 @@ namespace AvirA
 						clients.push_back(C_DiscordClient());
 						clients.back().SetToken(accounts[i].m_token);
 						labels.push_back(accounts[i].m_name);
+						used_ids.push_back(accounts[i].m_id);
 						break;
 					}
 				}
@@ -342,6 +345,7 @@ namespace AvirA
 					clients.push_back(C_DiscordClient());
 					clients.back().SetToken(m_store.Token());
 					labels.push_back(m_store.MeName());
+					used_ids.push_back(active);
 				}
 			}
 			else
@@ -355,6 +359,7 @@ namespace AvirA
 							clients.push_back(C_DiscordClient());
 							clients.back().SetToken(accounts[k].m_token);
 							labels.push_back(accounts[k].m_name);
+							used_ids.push_back(accounts[k].m_id);
 							break;
 						}
 					}
@@ -368,7 +373,7 @@ namespace AvirA
 			}
 			for (size_t i = 0; i < clients.size(); i++)
 				pointers.push_back(&clients[i]);
-			std::vector<S_SendTarget> targets = spammer->BuildMultiTargets(pointers, labels);
+			std::vector<S_SendTarget> targets = spammer->BuildMultiTargets(pointers, labels, used_ids);
 			S_SendOptions options;
 			options.m_repeat = spam ? count : 1;
 			options.m_delay_ms = delay;
@@ -432,6 +437,66 @@ namespace AvirA
 			else
 				m_spam_error = "Deleted " + FormatI32(deleted);
 			m_sdel_busy = false;
+		}).detach();
+	}
+
+	void C_App::DeleteLastBatch()
+	{
+		if (m_undel_busy || m_spam_busy || m_sdel_busy)
+			return;
+		C_Spammer* spammer = m_store.Spammer();
+		std::vector<S_SentItem> batch = spammer->LastBatch();
+		if (batch.empty())
+		{
+			m_spam_error = "Nothing sent yet";
+			return;
+		}
+		if (!m_store.Logged())
+		{
+			m_spam_error = "Login first";
+			return;
+		}
+		m_undel_busy = true;
+		m_undel_done = 0;
+		m_undel_total = (int)batch.size();
+		m_spam_error = "Deleting last batch...";
+		std::vector<C_Store::S_Account> accounts = m_store.Accounts();
+		std::thread([this, spammer, batch, accounts]() {
+			std::vector<C_DiscordClient> clients;
+			std::vector<std::string> ids;
+			for (size_t i = 0; i < accounts.size(); i++)
+			{
+				clients.push_back(C_DiscordClient());
+				clients.back().SetToken(accounts[i].m_token);
+				ids.push_back(accounts[i].m_id);
+			}
+			C_DiscordClient* fallback = m_store.Client();
+			int deleted = 0;
+			int failed = 0;
+			for (size_t i = 0; i < batch.size(); i++)
+			{
+				C_DiscordClient* client = fallback;
+				for (size_t k = 0; k < ids.size(); k++)
+				{
+					if (ids[k] == batch[i].m_account)
+					{
+						client = &clients[k];
+						break;
+					}
+				}
+				if (!client->DeleteMessage(batch[i].m_channel, batch[i].m_id))
+					failed++;
+				else
+					deleted++;
+				m_undel_done++;
+				std::this_thread::sleep_for(std::chrono::milliseconds(450));
+			}
+			if (failed > 0)
+				m_spam_error = "Deleted " + FormatI32(deleted) + ", fails " + FormatI32(failed);
+			else
+				m_spam_error = "Deleted " + FormatI32(deleted);
+			spammer->ClearLastBatch();
+			m_undel_busy = false;
 		}).detach();
 	}
 
@@ -849,7 +914,7 @@ namespace AvirA
 
 	void C_App::DrawSender()
 	{
-		ImGui::BeginChild("send_box", ImVec2(0, 330), true);
+		ImGui::BeginChild("send_box", ImVec2(0, 380), true);
 		ImGui::Text("Message");
 		ImGui::InputTextMultiline("##msg", m_message_edit, sizeof(m_message_edit), ImVec2(-1, 60));
 		ImGui::PushItemWidth(-110);
@@ -1009,6 +1074,20 @@ namespace AvirA
 			ImGui::SameLine();
 			if (ImGui::Button("Delete mine in picked", ImVec2(180, 0)))
 				DeleteSenderMine();
+		}
+		if (m_undel_busy)
+		{
+			ImGui::BeginDisabled();
+			ImGui::Button("Deleting last...", ImVec2(180, 0));
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			ImGui::TextDisabled("%d / %d", m_undel_done.load(), m_undel_total.load());
+		}
+		else
+		{
+			size_t batch = m_store.Spammer()->LastBatchCount();
+			if (ImGui::Button(("Delete last (" + FormatU64(batch) + ")").c_str(), ImVec2(180, 0)))
+				DeleteLastBatch();
 		}
 		if (!m_spam_error.empty())
 			ImGui::TextDisabled("%s", m_spam_error.c_str());
