@@ -3,6 +3,15 @@
 
 namespace AvirA
 {
+	static double RetryWait(const S_HttpResult& result, double fallback)
+	{
+		C_Json root = C_Json::Parse(result.m_body);
+		const C_Json* found = root.Find("retry_after");
+		if (found && found->m_type == E_JsonType::Number)
+			return found->m_number;
+		return fallback;
+	}
+
 	bool S_Profile::Same(const S_Profile& other) const
 	{
 		if (m_name != other.m_name)
@@ -579,8 +588,24 @@ namespace AvirA
 
 	bool C_DiscordClient::DeleteMessage(const std::string& channel, const std::string& id)
 	{
-		S_HttpResult result = m_http.Delete("/channels/" + channel + "/messages/" + id);
-		return result.m_ok || result.m_status == 404;
+		for (int attempt = 0; attempt < 4; attempt++)
+		{
+			S_HttpResult result = m_http.Delete("/channels/" + channel + "/messages/" + id);
+			if (result.m_ok || result.m_status == 404)
+				return true;
+			if (result.m_status == 429)
+			{
+				double wait = RetryWait(result, 2.0);
+				if (wait < 0.5)
+					wait = 1.0;
+				if (wait > 30)
+					wait = 30;
+				std::this_thread::sleep_for(std::chrono::milliseconds((int)(wait * 1000)));
+				continue;
+			}
+			return false;
+		}
+		return false;
 	}
 
 	std::string C_DiscordClient::UrlEncode(const std::string& text)
