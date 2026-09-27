@@ -191,6 +191,7 @@ namespace AvirA
 			out.m_error = "No session";
 			return out;
 		}
+		WinHttpSetTimeouts(session, 15000, 15000, 60000, 120000);
 		HINTERNET connect = WinHttpConnect(session, host, parts.nPort, 0);
 		if (!connect)
 		{

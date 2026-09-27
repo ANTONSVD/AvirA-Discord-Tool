@@ -461,33 +461,48 @@ namespace AvirA
 			payload.Set("model", use_model);
 			payload.Set("messages", list);
 			payload.Set("temperature", temp);
-			payload.Set("max_tokens", (i64)300);
-			S_HttpResult result = m_llm.PostJsonFull(target_url, payload.Dump());
-			if (!result.m_ok && (result.m_status == 429 || result.m_status >= 500))
+			payload.Set("max_tokens", (i64)600);
+			int last_status = 0;
+			bool saw_empty = false;
+			for (int attempt = 0; attempt < 3; attempt++)
 			{
-				double wait = LlmRetryWait(result);
-				for (int left = (int)(wait * 10); left > 0 && m_polling; left--)
-					std::this_thread::sleep_for(std::chrono::milliseconds(100));
-				if (m_polling)
-					result = m_llm.PostJsonFull(target_url, payload.Dump());
-			}
-			if (result.m_ok)
-			{
-				bool empty = false;
-				std::string answer = LlmAnswerText(result, empty);
-				if (!empty)
+				S_HttpResult result = m_llm.PostJsonFull(target_url, payload.Dump());
+				last_status = result.m_status;
+				if (!result.m_ok && (result.m_status == 429 || result.m_status >= 500))
 				{
-					m_llm.ClearToken();
-					out = answer;
-					if (was_fallback)
-						*was_fallback = round == 1;
-					return true;
+					double wait = LlmRetryWait(result);
+					for (int left = (int)(wait * 10); left > 0 && m_polling; left--)
+						std::this_thread::sleep_for(std::chrono::milliseconds(100));
+					if (m_polling)
+						result = m_llm.PostJsonFull(target_url, payload.Dump());
+					last_status = result.m_status;
 				}
-				error = "Empty llm answer";
+				if (result.m_ok)
+				{
+					bool empty = false;
+					std::string answer = LlmAnswerText(result, empty);
+					if (!empty)
+					{
+						m_llm.ClearToken();
+						out = answer;
+						if (was_fallback)
+							*was_fallback = round == 1;
+						return true;
+					}
+					error = "Empty llm answer";
+					saw_empty = true;
+					if (attempt + 1 < 3)
+					{
+						for (int left = 30; left > 0 && m_polling; left--)
+							std::this_thread::sleep_for(std::chrono::milliseconds(100));
+						continue;
+					}
+				}
+				else
+					error = LlmErrorText(result);
+				break;
 			}
-			else
-				error = LlmErrorText(result);
-			if (round == 0 && (result.m_status == 404 || result.m_status == 429 || result.m_status >= 500) && first_model != "openrouter/free")
+			if (round == 0 && (last_status == 404 || last_status == 429 || last_status >= 500 || saw_empty) && first_model != "openrouter/free")
 				continue;
 			break;
 		}
@@ -902,7 +917,7 @@ namespace AvirA
 				else
 				{
 					std::vector<std::string> parts;
-					if (ladder)
+					if (ladder || llm_used)
 						parts = SplitLadder(reply_text);
 					else
 						parts.push_back(reply_text);
