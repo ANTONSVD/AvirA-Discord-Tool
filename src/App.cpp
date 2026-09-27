@@ -1749,6 +1749,46 @@ namespace AvirA
 			m_store.Save();
 		}
 		ImGui::PopItemWidth();
+		auto reply_accounts = m_store.Accounts();
+		if (!reply_accounts.empty())
+		{
+			ImGui::TextDisabled("Reply as:");
+			ImGui::SameLine();
+			auto picked_reply = m_store.AutoAccounts();
+			for (size_t i = 0; i < reply_accounts.size(); i++)
+			{
+				bool on = false;
+				for (size_t k = 0; k < picked_reply.size(); k++)
+				{
+					if (picked_reply[k] == reply_accounts[i].m_id)
+					{
+						on = true;
+						break;
+					}
+				}
+				if (i)
+					ImGui::SameLine();
+				if (ImGui::Checkbox((reply_accounts[i].m_name + "##ra" + reply_accounts[i].m_id).c_str(), &on))
+				{
+					std::vector<std::string> next = picked_reply;
+					if (on)
+						next.push_back(reply_accounts[i].m_id);
+					else
+					{
+						for (size_t k = 0; k < next.size(); k++)
+						{
+							if (next[k] == reply_accounts[i].m_id)
+							{
+								next.erase(next.begin() + k);
+								break;
+							}
+						}
+					}
+					m_store.SetAutoAccounts(next);
+					m_store_dirty = true;
+				}
+			}
+		}
 		ImGui::PushItemWidth(280);
 		ImGui::InputTextWithHint("##autotoken", "Add token for replies", m_auto_token, sizeof(m_auto_token), ImGuiInputTextFlags_Password);
 		ImGui::PopItemWidth();
@@ -2655,6 +2695,37 @@ namespace AvirA
 		}
 		ImGui::Separator();
 		ImGui::Text("Accounts (%llu)", (unsigned long long)m_store.Accounts().size());
+		ImGui::PushItemWidth(300);
+		ImGui::InputTextWithHint("##settingstoken", "Add token", m_settings_token, sizeof(m_settings_token), ImGuiInputTextFlags_Password);
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Add token"))
+		{
+			m_settings_token_error.clear();
+			std::string token = Trimmed(m_settings_token);
+			if (token.empty())
+				m_settings_token_error = "Empty token";
+			else
+			{
+				C_DiscordClient check;
+				check.SetToken(token);
+				std::string name;
+				std::string id;
+				if (!check.CheckToken(name, id))
+					m_settings_token_error = "Bad token";
+				else
+				{
+					m_store.AddOrUpdateAccount(id, name, token);
+					m_store.Save();
+					memset(m_settings_token, 0, sizeof(m_settings_token));
+				}
+			}
+		}
+		if (!m_settings_token_error.empty())
+		{
+			ImGui::SameLine();
+			ImGui::TextColored(ImVec4(1, 0.45f, 0.45f, 1), "%s", m_settings_token_error.c_str());
+		}
 		auto accounts = m_store.Accounts();
 		for (size_t i = 0; i < accounts.size(); i++)
 		{
