@@ -1749,45 +1749,70 @@ namespace AvirA
 			m_store.Save();
 		}
 		ImGui::PopItemWidth();
-		auto reply_accounts = m_store.Accounts();
-		if (!reply_accounts.empty())
+		ImGui::PushItemWidth(280);
+		ImGui::InputTextWithHint("##autotoken", "Add token for replies", m_auto_token, sizeof(m_auto_token), ImGuiInputTextFlags_Password);
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Add token"))
 		{
-			ImGui::TextDisabled("Reply as:");
-			ImGui::SameLine();
-			auto picked_reply = m_store.AutoAccounts();
-			for (size_t i = 0; i < reply_accounts.size(); i++)
+			m_auto_token_error.clear();
+			std::string token = Trimmed(m_auto_token);
+			if (token.empty())
+				m_auto_token_error = "Empty token";
+			else
 			{
-				bool on = false;
-				for (size_t k = 0; k < picked_reply.size(); k++)
+				C_DiscordClient check;
+				check.SetToken(token);
+				std::string name;
+				std::string id;
+				if (!check.CheckToken(name, id))
+					m_auto_token_error = "Bad token";
+				else
 				{
-					if (picked_reply[k] == reply_accounts[i].m_id)
+					m_store.AddOrUpdateAccount(id, name, token);
+					std::vector<std::string> next = m_store.AutoAccounts();
+					bool known = false;
+					for (size_t k = 0; k < next.size(); k++)
 					{
-						on = true;
+						if (next[k] == id)
+						{
+							known = true;
+							break;
+						}
+					}
+					if (!known)
+						next.push_back(id);
+					m_store.SetAutoAccounts(next);
+					m_store.Save();
+					memset(m_auto_token, 0, sizeof(m_auto_token));
+				}
+			}
+		}
+		if (!m_auto_token_error.empty())
+		{
+			ImGui::SameLine();
+			ImGui::TextColored(ImVec4(1, 0.45f, 0.45f, 1), "%s", m_auto_token_error.c_str());
+		}
+		{
+			std::string from;
+			auto picked_reply = m_store.AutoAccounts();
+			auto all_reply = m_store.Accounts();
+			for (size_t i = 0; i < picked_reply.size(); i++)
+			{
+				for (size_t k = 0; k < all_reply.size(); k++)
+				{
+					if (all_reply[k].m_id == picked_reply[i])
+					{
+						if (!from.empty())
+							from += ", ";
+						from += all_reply[k].m_name;
 						break;
 					}
 				}
-				if (i)
-					ImGui::SameLine();
-				if (ImGui::Checkbox((reply_accounts[i].m_name + "##ra" + reply_accounts[i].m_id).c_str(), &on))
-				{
-					std::vector<std::string> next = picked_reply;
-					if (on)
-						next.push_back(reply_accounts[i].m_id);
-					else
-					{
-						for (size_t k = 0; k < next.size(); k++)
-						{
-							if (next[k] == reply_accounts[i].m_id)
-							{
-								next.erase(next.begin() + k);
-								break;
-							}
-						}
-					}
-					m_store.SetAutoAccounts(next);
-					m_store_dirty = true;
-				}
 			}
+			if (from.empty())
+				from = m_store.MeName() + " (main)";
+			ImGui::TextDisabled("Reply from: %s", from.c_str());
 		}
 		if (mode_index == 1)
 		{

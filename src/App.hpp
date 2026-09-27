@@ -53,6 +53,8 @@ namespace AvirA
 		char m_file_edit[512] = {};
 		char m_clean_text[256] = {};
 		char m_auto_id_edit[64] = {};
+		char m_auto_token[512] = {};
+		std::string m_auto_token_error;
 		char m_auto_llm_key[256] = {};
 		char m_auto_llm_endpoint[256] = {};
 		char m_auto_llm_model[128] = {};
