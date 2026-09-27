@@ -1917,6 +1917,8 @@ namespace AvirA
 	void C_App::DrawTyping()
 	{
 		m_store.Typing()->SetSnapshot(FlatChannels());
+		if (m_store.Typing()->PickedCount() > 0)
+			m_typing_hint.clear();
 		ImGui::BeginChild("type_box", ImVec2(0, 100), true);
 		ImGui::Text("Typing");
 		ImGui::TextDisabled("Holds typing dots forever, refresh every few sec");
@@ -1933,8 +1935,13 @@ namespace AvirA
 		{
 			if (running)
 				m_store.Typing()->Stop();
+			else if (m_store.Typing()->PickedCount() == 0)
+				m_typing_hint = "Pick channels first";
 			else
+			{
+				m_typing_hint.clear();
 				m_store.Typing()->Start();
+			}
 		}
 		ImGui::SameLine();
 		if (ImGui::SmallButton("All"))
@@ -1952,6 +1959,11 @@ namespace AvirA
 		}
 		ImGui::SameLine();
 		ImGui::TextDisabled("Picked: %llu", (unsigned long long)m_store.Typing()->PickedCount());
+		if (!m_typing_hint.empty())
+		{
+			ImGui::SameLine();
+			ImGui::TextColored(ImVec4(1, 0.45f, 0.45f, 1), "%s", m_typing_hint.c_str());
+		}
 		ImGui::EndChild();
 
 		auto states = m_store.Typing()->States();

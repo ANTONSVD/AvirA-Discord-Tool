@@ -97,6 +97,14 @@ namespace AvirA
 		bool expected = false;
 		if (!m_running.compare_exchange_strong(expected, true))
 			return;
+		{
+			std::lock_guard<std::mutex> guard(m_lock);
+			if (m_picked.empty())
+			{
+				m_running = false;
+				return;
+			}
+		}
 		m_thread = std::thread(&C_Typing::Worker, this);
 	}
 
