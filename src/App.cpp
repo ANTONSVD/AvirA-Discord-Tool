@@ -15,8 +15,6 @@ namespace AvirA
 		m_track_interval = m_store.Tracker()->Interval();
 		m_auto_interval = m_store.Auto()->Interval();
 		m_typing_interval = m_store.Typing()->Interval();
-		m_blink_on = m_store.Typing()->BlinkOn();
-		m_blink_off = m_store.Typing()->BlinkOff();
 		m_clean_guild_id = m_store.PendingCleanGuild();
 		m_clean_channel_id = m_store.PendingCleanChannel();
 		m_clean_resolve = true;
@@ -1874,7 +1872,7 @@ namespace AvirA
 	void C_App::DrawTyping()
 	{
 		m_store.Typing()->SetSnapshot(FlatChannels());
-		ImGui::BeginChild("type_box", ImVec2(0, 130), true);
+		ImGui::BeginChild("type_box", ImVec2(0, 100), true);
 		ImGui::Text("Typing");
 		ImGui::TextDisabled("Holds typing dots forever, refresh every few sec");
 		ImGui::PushItemWidth(140);
@@ -1885,37 +1883,11 @@ namespace AvirA
 		}
 		ImGui::PopItemWidth();
 		ImGui::SameLine();
-		bool blink = m_store.Typing()->Blink();
-		if (ImGui::Checkbox("Blink", &blink))
-		{
-			m_store.Typing()->SetBlink(blink, m_blink_on, m_blink_off);
-			m_store_dirty = true;
-		}
-		if (blink)
+		ImGui::TextDisabled("Blink 10s on / 15s off");
+		if (m_store.Typing()->Running())
 		{
 			ImGui::SameLine();
-			ImGui::PushItemWidth(110);
-			if (ImGui::SliderInt("On", &m_blink_on, 5, 300))
-			{
-				m_store.Typing()->SetBlink(true, m_blink_on, m_blink_off);
-				m_store_dirty = true;
-			}
-			ImGui::PopItemWidth();
-			ImGui::SameLine();
-			ImGui::PushItemWidth(110);
-			if (ImGui::SliderInt("Off", &m_blink_off, 5, 300))
-			{
-				m_store.Typing()->SetBlink(true, m_blink_on, m_blink_off);
-				m_store_dirty = true;
-			}
-			ImGui::PopItemWidth();
-			ImGui::SameLine();
-			if (m_store.Typing()->Running())
-				ImGui::TextDisabled(m_store.Typing()->BlinkActive() ? "on %ds" : "off %ds", m_store.Typing()->PhaseLeft());
-		}
-		else
-		{
-			ImGui::SameLine();
+			ImGui::TextDisabled(m_store.Typing()->BlinkActive() ? "on %ds" : "off %ds", m_store.Typing()->PhaseLeft());
 		}
 		bool running = m_store.Typing()->Running();
 		if (C_Theme::FadedButton("##typerun", running ? "Stop" : "Start", running, 90))

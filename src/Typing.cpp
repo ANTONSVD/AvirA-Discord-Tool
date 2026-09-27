@@ -163,6 +163,9 @@ namespace AvirA
 			return;
 		{
 			std::lock_guard<std::mutex> guard(m_lock);
+			m_blink = true;
+			m_blink_on = 10;
+			m_blink_off = 15;
 			m_blink_base = NowMillis();
 		}
 		m_thread = std::thread(&C_Typing::Worker, this);
