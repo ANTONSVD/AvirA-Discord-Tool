@@ -60,6 +60,8 @@ namespace AvirA
 		bool m_dm_loaded = false;
 		bool m_dm_busy = false;
 		char m_wh_url[512] = {};
+		char m_wh_hook_name[128] = {};
+		int m_wh_hook_index = 0;
 		char m_wh_text[2048] = {};
 		char m_wh_username[128] = {};
 		char m_wh_avatar[512] = {};
@@ -87,6 +89,8 @@ namespace AvirA
 		std::atomic<int> m_wh_total = 0;
 		std::atomic<int> m_wh_rl = 0;
 		std::atomic<bool> m_wh_cancel = false;
+		void ExportTrackLog(const std::string& id);
+		std::string m_track_saved;
 		std::string m_wh_error;
 		std::string m_wh_spam_error;
 		std::string m_wh_file_error;
@@ -114,6 +118,8 @@ namespace AvirA
 		bool m_track_busy = false;
 		int m_auto_interval = 12;
 		int m_typing_interval = 8;
+		int m_blink_on = 30;
+		int m_blink_off = 15;
 		bool m_spam_mode = false;
 		int m_spam_count = 5;
 		int m_spam_delay = 1500;

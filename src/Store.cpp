@@ -157,6 +157,9 @@ namespace AvirA
 		text += "ctext=" + Escaped(m_clean_text) + "\n";
 		text += "[typing]\n";
 		text += "typing_interval=" + FormatI32(m_typing.Interval()) + "\n";
+		text += "blink=" + std::string(m_typing.Blink() ? "1" : "0") + "\n";
+		text += "blinkon=" + FormatI32(m_typing.BlinkOn()) + "\n";
+		text += "blinkoff=" + FormatI32(m_typing.BlinkOff()) + "\n";
 		{
 			auto picked = m_typing.Picked();
 			text += "typing_picks=";
@@ -170,6 +173,8 @@ namespace AvirA
 		}
 		text += "[webhook]\n";
 		text += "url=" + m_last_hook + "\n";
+		for (size_t i = 0; i < m_hooks.size() && i < 30; i++)
+			text += "hook=" + Escaped(m_hooks[i].m_name) + "||" + m_hooks[i].m_url + "\n";
 		text += "[accounts]\n";
 		text += "active=" + m_active_account + "\n";
 		for (size_t i = 0; i < m_accounts.size(); i++)
@@ -425,6 +430,12 @@ namespace AvirA
 				m_clean_text = Unescaped(line.substr(6));
 			if (line.rfind("typing_interval=", 0) == 0)
 				m_typing.SetInterval(std::atoi(line.substr(16).c_str()));
+			if (line.rfind("blink=", 0) == 0)
+				m_pending_blink = Trimmed(line.substr(6)) == "1";
+			if (line.rfind("blinkon=", 0) == 0)
+				m_pending_blink_on = std::atoi(line.substr(8).c_str());
+			if (line.rfind("blinkoff=", 0) == 0)
+				m_pending_blink_off = std::atoi(line.substr(9).c_str());
 			if (line.rfind("typing_picks=", 0) == 0)
 			{
 				std::string list = line.substr(13);
@@ -442,6 +453,19 @@ namespace AvirA
 			}
 			if (line.rfind("url=", 0) == 0)
 				m_last_hook = Trimmed(line.substr(4));
+			if (line.rfind("hook=", 0) == 0)
+			{
+				std::string rest = line.substr(5);
+				size_t sep = rest.find("||");
+				if (sep != std::string::npos && m_hooks.size() < 30)
+				{
+					S_SavedHook hook;
+					hook.m_name = Unescaped(rest.substr(0, sep));
+					hook.m_url = Trimmed(rest.substr(sep + 2));
+					if (!hook.m_name.empty() && C_Webhooks::ValidUrl(hook.m_url))
+						m_hooks.push_back(hook);
+				}
+			}
 			if (line.rfind("active=", 0) == 0)
 				m_active_account = Trimmed(line.substr(7));
 			if (line.rfind("account=", 0) == 0)
@@ -632,6 +656,7 @@ namespace AvirA
 		}
 		m_pending_favorites = favorites;
 		m_spammer.ApplyFavorites(favorites);
+		m_typing.SetBlink(m_pending_blink, m_pending_blink_on, m_pending_blink_off);
 		for (size_t i = 0; i < auto_watch.size(); i++)
 			m_auto.SetWatch(auto_watch[i], true);
 		for (size_t i = 0; i < watched.size(); i++)
@@ -693,6 +718,60 @@ namespace AvirA
 	void C_Store::SetLastHook(const std::string& url)
 	{
 		m_last_hook = Trimmed(url);
+	}
+
+	std::vector<C_Store::S_SavedHook> C_Store::Hooks() const
+	{
+		return m_hooks;
+	}
+
+	bool C_Store::AddHook(const std::string& name, const std::string& url)
+	{
+		std::string clean_name = Trimmed(name);
+		std::string clean_url = Trimmed(url);
+		if (!C_Webhooks::ValidUrl(clean_url))
+			return false;
+		if (clean_name.empty())
+		{
+			for (int n = 1; n < 1000; n++)
+			{
+				std::string candidate = "Hook " + FormatI32(n);
+				bool taken = false;
+				for (size_t i = 0; i < m_hooks.size(); i++)
+				{
+					if (m_hooks[i].m_name == candidate)
+					{
+						taken = true;
+						break;
+					}
+				}
+				if (!taken)
+				{
+					clean_name = candidate;
+					break;
+				}
+			}
+		}
+		if (clean_name.empty() || clean_name.size() > 64 || clean_name.find("||") != std::string::npos)
+			return false;
+		if (m_hooks.size() >= 30)
+			return false;
+		for (size_t i = 0; i < m_hooks.size(); i++)
+		{
+			if (m_hooks[i].m_name == clean_name || m_hooks[i].m_url == clean_url)
+				return false;
+		}
+		S_SavedHook hook;
+		hook.m_name = clean_name;
+		hook.m_url = clean_url;
+		m_hooks.push_back(hook);
+		return true;
+	}
+
+	void C_Store::RemoveHook(size_t index)
+	{
+		if (index < m_hooks.size())
+			m_hooks.erase(m_hooks.begin() + index);
 	}
 
 	std::string C_Store::Token() const

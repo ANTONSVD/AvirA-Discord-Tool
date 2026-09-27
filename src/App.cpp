@@ -4,6 +4,7 @@
 #include <Windows.h>
 #include <commdlg.h>
 #include <shellapi.h>
+#include <ShlObj.h>
 
 namespace AvirA
 {
@@ -14,6 +15,8 @@ namespace AvirA
 		m_track_interval = m_store.Tracker()->Interval();
 		m_auto_interval = m_store.Auto()->Interval();
 		m_typing_interval = m_store.Typing()->Interval();
+		m_blink_on = m_store.Typing()->BlinkOn();
+		m_blink_off = m_store.Typing()->BlinkOff();
 		m_clean_guild_id = m_store.PendingCleanGuild();
 		m_clean_channel_id = m_store.PendingCleanChannel();
 		m_clean_resolve = true;
@@ -212,6 +215,55 @@ namespace AvirA
 	{
 		LogoutSession();
 		memset(m_token_edit, 0, sizeof(m_token_edit));
+	}
+
+	void C_App::ExportTrackLog(const std::string& id)
+	{
+		m_track_saved.clear();
+		S_Tracked* item = m_store.Tracker()->Find(id);
+		if (!item)
+			return;
+		S_Tracked copy = *item;
+		char docs[MAX_PATH] = {};
+		std::string dir = ".";
+		if (SUCCEEDED(SHGetFolderPathA(nullptr, CSIDL_MYDOCUMENTS, nullptr, 0, docs)))
+			dir = docs;
+		std::string name = copy.m_last.m_name.empty() ? copy.m_id : copy.m_last.m_name;
+		std::string safe;
+		for (char c : name)
+		{
+			if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-')
+				safe.push_back(c);
+			else
+				safe.push_back('_');
+		}
+		if (safe.empty())
+			safe = copy.m_id;
+		std::string path = dir + "\\AvirA_track_" + safe + "_" + copy.m_id + ".txt";
+		std::string out = "\xEF\xBB\xBF";
+		out += "AvirA track " + (copy.m_last.m_name.empty() ? copy.m_id : copy.m_last.m_name + " (" + copy.m_id + ")") + "\n";
+		out += "Exported " + TimeString(NowSeconds()) + "\n";
+		out += "Status: " + (copy.m_last.m_status.empty() ? "-" : copy.m_last.m_status) + "\n";
+		out += "Game: " + (copy.m_last.GameText().empty() ? "-" : copy.m_last.GameText()) + "\n";
+		out += "Bio: " + (copy.m_last.m_bio.empty() ? "-" : copy.m_last.m_bio) + "\n";
+		out += "--- logs ---\n";
+		for (size_t i = 0; i < copy.m_logs.size(); i++)
+			out += "[" + TimeString(copy.m_logs[i].m_stamp) + "] [" + copy.m_logs[i].m_kind + "] " + copy.m_logs[i].m_text + "\n";
+		out += "--- avatars ---\n";
+		for (size_t i = 0; i < copy.m_avatars.size(); i++)
+			out += "[" + TimeString(copy.m_avatars[i].m_stamp) + "] " + copy.m_avatars[i].m_url + "\n";
+		out += "--- banners ---\n";
+		for (size_t i = 0; i < copy.m_banners.size(); i++)
+			out += "[" + TimeString(copy.m_banners[i].m_stamp) + "] " + copy.m_banners[i].m_url + "\n";
+		FILE* file = nullptr;
+		if (fopen_s(&file, path.c_str(), "wb") != 0 || !file)
+		{
+			m_track_saved = "Save failed";
+			return;
+		}
+		std::fwrite(out.data(), 1, out.size(), file);
+		std::fclose(file);
+		m_track_saved = path;
 	}
 
 	void C_App::AddTracked()
@@ -825,7 +877,10 @@ namespace AvirA
 			if (i)
 				ImGui::SameLine();
 			if (C_Theme::FadedButton(("##u" + item->m_id).c_str(), label.c_str(), active))
+			{
 				m_log_tab = item->m_id;
+				m_track_saved.clear();
+			}
 		}
 		ImGui::EndChild();
 
@@ -885,12 +940,18 @@ namespace AvirA
 		{
 			m_store.Tracker()->Remove(current->m_id);
 			m_log_tab.clear();
+			m_track_saved.clear();
 			m_store.Save();
 			ImGui::EndChild();
 			return;
 		}
 		ImGui::SameLine();
+		if (ImGui::SmallButton(("Export##" + current->m_id).c_str()))
+			ExportTrackLog(current->m_id);
+		ImGui::SameLine();
 		ImGui::TextDisabled("checked %s", TimeString(current->m_checked).c_str());
+		if (!m_track_saved.empty())
+			ImGui::TextDisabled("%s", m_track_saved.c_str());
 		ImGui::Separator();
 		ImGui::BeginChild("logs", ImVec2(0, 0), false);
 		for (int i = (int)current->m_logs.size() - 1; i >= 0; i--)
@@ -1813,7 +1874,7 @@ namespace AvirA
 	void C_App::DrawTyping()
 	{
 		m_store.Typing()->SetSnapshot(FlatChannels());
-		ImGui::BeginChild("type_box", ImVec2(0, 96), true);
+		ImGui::BeginChild("type_box", ImVec2(0, 130), true);
 		ImGui::Text("Typing");
 		ImGui::TextDisabled("Holds typing dots forever, refresh every few sec");
 		ImGui::PushItemWidth(140);
@@ -1824,6 +1885,38 @@ namespace AvirA
 		}
 		ImGui::PopItemWidth();
 		ImGui::SameLine();
+		bool blink = m_store.Typing()->Blink();
+		if (ImGui::Checkbox("Blink", &blink))
+		{
+			m_store.Typing()->SetBlink(blink, m_blink_on, m_blink_off);
+			m_store_dirty = true;
+		}
+		if (blink)
+		{
+			ImGui::SameLine();
+			ImGui::PushItemWidth(110);
+			if (ImGui::SliderInt("On", &m_blink_on, 5, 300))
+			{
+				m_store.Typing()->SetBlink(true, m_blink_on, m_blink_off);
+				m_store_dirty = true;
+			}
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			ImGui::PushItemWidth(110);
+			if (ImGui::SliderInt("Off", &m_blink_off, 5, 300))
+			{
+				m_store.Typing()->SetBlink(true, m_blink_on, m_blink_off);
+				m_store_dirty = true;
+			}
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			if (m_store.Typing()->Running())
+				ImGui::TextDisabled(m_store.Typing()->BlinkActive() ? "on %ds" : "off %ds", m_store.Typing()->PhaseLeft());
+		}
+		else
+		{
+			ImGui::SameLine();
+		}
 		bool running = m_store.Typing()->Running();
 		if (C_Theme::FadedButton("##typerun", running ? "Stop" : "Start", running, 90))
 		{
@@ -1907,7 +2000,7 @@ namespace AvirA
 	void C_App::DrawWebhooks()
 	{
 		C_Webhooks* hooks = m_store.Webhooks();
-		ImGui::BeginChild("wh_url", ImVec2(0, 62), true);
+		ImGui::BeginChild("wh_url", ImVec2(0, 96), true);
 		ImGui::PushItemWidth(-90);
 		ImGui::InputTextWithHint("##whurl", "https://discord.com/api/webhooks/...", m_wh_url, sizeof(m_wh_url));
 		ImGui::PopItemWidth();
@@ -1929,6 +2022,55 @@ namespace AvirA
 					m_wh_error = error;
 			}
 		}
+		auto saved = m_store.Hooks();
+		std::vector<const char*> hook_names;
+		std::vector<std::string> hook_keep;
+		for (size_t i = 0; i < saved.size(); i++)
+			hook_keep.push_back(saved[i].m_name);
+		for (size_t i = 0; i < hook_keep.size(); i++)
+			hook_names.push_back(hook_keep[i].c_str());
+		if (m_wh_hook_index >= (int)hook_names.size())
+			m_wh_hook_index = 0;
+		ImGui::PushItemWidth(200);
+		if (!hook_names.empty() && ImGui::Combo("Saved", &m_wh_hook_index, hook_names.data(), (int)hook_names.size()))
+		{
+			if ((size_t)m_wh_hook_index < saved.size())
+			{
+				strncpy_s(m_wh_url, saved[m_wh_hook_index].m_url.c_str(), sizeof(m_wh_url) - 1);
+				m_store.SetLastHook(m_wh_url);
+				m_store.Save();
+			}
+		}
+		ImGui::PopItemWidth();
+		if (!hook_names.empty())
+		{
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Delete saved"))
+			{
+				if ((size_t)m_wh_hook_index < saved.size())
+				{
+					m_store.RemoveHook(m_wh_hook_index);
+					m_wh_hook_index = 0;
+					m_store.Save();
+				}
+			}
+		}
+		ImGui::SameLine();
+		ImGui::PushItemWidth(160);
+		ImGui::InputTextWithHint("##whhookname", "Name for save", m_wh_hook_name, sizeof(m_wh_hook_name));
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Save current"))
+		{
+			if (m_store.AddHook(m_wh_hook_name, m_wh_url))
+			{
+				memset(m_wh_hook_name, 0, sizeof(m_wh_hook_name));
+				m_wh_hook_index = (int)m_store.Hooks().size() - 1;
+				m_store.Save();
+			}
+		}
+		if (hook_names.empty())
+			ImGui::TextDisabled("No saved hooks yet, name it and save current url.");
 		if (!m_wh_error.empty())
 			ImGui::TextColored(ImVec4(1, 0.45f, 0.45f, 1), "%s", m_wh_error.c_str());
 		ImGui::EndChild();

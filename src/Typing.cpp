@@ -21,6 +21,70 @@ namespace AvirA
 		return m_interval;
 	}
 
+	void C_Typing::SetBlink(bool on, int on_sec, int off_sec)
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		if (on_sec < 5)
+			on_sec = 5;
+		if (on_sec > 300)
+			on_sec = 300;
+		if (off_sec < 5)
+			off_sec = 5;
+		if (off_sec > 300)
+			off_sec = 300;
+		if (on && !m_blink)
+			m_blink_base = NowMillis();
+		m_blink = on;
+		m_blink_on = on_sec;
+		m_blink_off = off_sec;
+	}
+
+	bool C_Typing::Blink() const
+	{
+		return m_blink;
+	}
+
+	int C_Typing::BlinkOn() const
+	{
+		return m_blink_on;
+	}
+
+	int C_Typing::BlinkOff() const
+	{
+		return m_blink_off;
+	}
+
+	bool C_Typing::BlinkActive() const
+	{
+		if (!m_blink)
+			return true;
+		u64 base = m_blink_base;
+		if (base == 0)
+			return true;
+		int cycle = m_blink_on + m_blink_off;
+		if (cycle <= 0)
+			return true;
+		u64 elapsed = (NowMillis() - base) / 1000;
+		return (elapsed % (u64)cycle) < (u64)m_blink_on;
+	}
+
+	int C_Typing::PhaseLeft() const
+	{
+		if (!m_blink)
+			return 0;
+		u64 base = m_blink_base;
+		if (base == 0)
+			return 0;
+		int cycle = m_blink_on + m_blink_off;
+		if (cycle <= 0)
+			return 0;
+		u64 elapsed = (NowMillis() - base) / 1000;
+		u64 pos = elapsed % (u64)cycle;
+		if (pos < (u64)m_blink_on)
+			return (int)((u64)m_blink_on - pos);
+		return (int)((u64)cycle - pos);
+	}
+
 	void C_Typing::SetSnapshot(const std::vector<S_Channel>& channels)
 	{
 		std::lock_guard<std::mutex> guard(m_lock);
@@ -97,6 +161,10 @@ namespace AvirA
 		bool expected = false;
 		if (!m_running.compare_exchange_strong(expected, true))
 			return;
+		{
+			std::lock_guard<std::mutex> guard(m_lock);
+			m_blink_base = NowMillis();
+		}
 		m_thread = std::thread(&C_Typing::Worker, this);
 	}
 
@@ -130,6 +198,11 @@ namespace AvirA
 				frozen = now < m_global_freeze;
 			}
 			if (frozen)
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(500));
+				continue;
+			}
+			if (!BlinkActive())
 			{
 				std::this_thread::sleep_for(std::chrono::milliseconds(500));
 				continue;

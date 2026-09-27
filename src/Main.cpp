@@ -119,6 +119,12 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmd, int show)
 	wc.lpszClassName = L"AvirA Discord Tool";
 	RegisterClassExW(&wc);
 	HWND window = CreateWindowExW(0, wc.lpszClassName, L"AvirA Discord Tool", WS_OVERLAPPEDWINDOW, 100, 100, 980, 760, nullptr, nullptr, wc.hInstance, nullptr);
+	HICON big_icon = (HICON)LoadImageW(wc.hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON, 64, 64, LR_DEFAULTCOLOR);
+	HICON small_icon = (HICON)LoadImageW(wc.hInstance, MAKEINTRESOURCEW(101), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
+	if (big_icon)
+		SendMessageW(window, WM_SETICON, ICON_BIG, (LPARAM)big_icon);
+	if (small_icon)
+		SendMessageW(window, WM_SETICON, ICON_SMALL, (LPARAM)small_icon);
 	if (!CreateDevice(window))
 	{
 		CleanupDevice();
