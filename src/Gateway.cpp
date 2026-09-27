@@ -288,7 +288,7 @@ namespace AvirA
 						}
 					}
 					if (m_chunk && (!members.empty() || !presences.empty()))
-						m_chunk(members, presences);
+						m_chunk(data->GetText("guild_id"), members, presences);
 				}
 				else if (kind == "GUILD_CREATE")
 				{

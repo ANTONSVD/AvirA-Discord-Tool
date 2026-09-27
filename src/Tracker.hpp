@@ -26,6 +26,8 @@ namespace AvirA
 		std::vector<S_AvatarHist> m_avatars;
 		std::vector<S_AvatarHist> m_banners;
 		std::vector<std::string> m_guilds;
+		std::vector<std::string> m_prime_wait;
+		bool m_prime_hit = false;
 		bool m_watching = true;
 		bool m_fresh = true;
 		u64 m_checked = 0;
@@ -54,7 +56,7 @@ namespace AvirA
 		bool Running() const;
 		void PollOnce();
 		void OnPresence(const std::string& id, const std::string& status, const std::vector<S_Activity>& games);
-		void OnChunk(const std::vector<std::string>& members, const std::vector<S_ChunkPresence>& presences);
+		void OnChunk(const std::string& guild, const std::vector<std::string>& members, const std::vector<S_ChunkPresence>& presences);
 		std::string GatewayState() const;
 
 		C_Webhook* Webhook();

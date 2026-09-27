@@ -8,8 +8,8 @@ namespace AvirA
 		m_gateway.SetPresence([this](const std::string& id, const std::string& status, const std::vector<S_Activity>& games) {
 			OnPresence(id, status, games);
 		});
-		m_gateway.SetChunk([this](const std::vector<std::string>& members, const std::vector<S_ChunkPresence>& presences) {
-			OnChunk(members, presences);
+		m_gateway.SetChunk([this](const std::string& guild, const std::vector<std::string>& members, const std::vector<S_ChunkPresence>& presences) {
+			OnChunk(guild, members, presences);
 		});
 	}
 
@@ -220,7 +220,7 @@ namespace AvirA
 		ApplyPresence(*item, status, games);
 	}
 
-	void C_Tracker::OnChunk(const std::vector<std::string>& members, const std::vector<S_ChunkPresence>& presences)
+	void C_Tracker::OnChunk(const std::string& guild, const std::vector<std::string>& members, const std::vector<S_ChunkPresence>& presences)
 	{
 		std::lock_guard<std::mutex> guard(m_lock);
 		for (size_t i = 0; i < presences.size(); i++)
@@ -228,12 +228,27 @@ namespace AvirA
 			S_Tracked* item = Find(presences[i].m_id);
 			if (!item || !item->m_watching)
 				continue;
+			item->m_prime_wait.clear();
 			ApplyPresence(*item, presences[i].m_status, presences[i].m_games);
 		}
+		if (guild.empty())
+			return;
 		for (size_t i = 0; i < m_items.size(); i++)
 		{
 			S_Tracked& item = m_items[i];
 			if (!item.m_watching || !item.m_last.m_status.empty())
+				continue;
+			bool waiting = false;
+			for (size_t k = 0; k < item.m_prime_wait.size(); k++)
+			{
+				if (item.m_prime_wait[k] == guild)
+				{
+					item.m_prime_wait.erase(item.m_prime_wait.begin() + k);
+					waiting = true;
+					break;
+				}
+			}
+			if (!waiting)
 				continue;
 			bool known = false;
 			for (size_t k = 0; k < members.size(); k++)
@@ -244,7 +259,7 @@ namespace AvirA
 					break;
 				}
 			}
-			if (!known)
+			if (!known || !item.m_prime_wait.empty())
 				continue;
 			bool seen = false;
 			for (size_t k = 0; k < presences.size(); k++)
@@ -306,8 +321,12 @@ namespace AvirA
 				if (item->m_last.m_status.empty() && m_gateway.State() == "live" && NowSeconds() - item->m_prime_at > 120 && !item->m_guilds.empty())
 				{
 					item->m_prime_at = NowSeconds();
+					item->m_prime_wait.clear();
 					for (size_t k = 0; k < item->m_guilds.size() && k < 6; k++)
+					{
 						prime_guilds.push_back(item->m_guilds[k]);
+						item->m_prime_wait.push_back(item->m_guilds[k]);
+					}
 				}
 			}
 			for (size_t k = 0; k < prime_guilds.size(); k++)

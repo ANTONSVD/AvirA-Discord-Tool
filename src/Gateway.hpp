@@ -17,7 +17,7 @@ namespace AvirA
 	{
 	public:
 		using PresenceFn = std::function<void(const std::string&, const std::string&, const std::vector<S_Activity>&)>;
-		using ChunkFn = std::function<void(const std::vector<std::string>&, const std::vector<S_ChunkPresence>&)>;
+		using ChunkFn = std::function<void(const std::string&, const std::vector<std::string>&, const std::vector<S_ChunkPresence>&)>;
 
 		void SetToken(const std::string& token);
 		void SetPresence(const PresenceFn& callback);
