@@ -27,7 +27,7 @@ namespace AvirA
 		bool m_on = true;
 		bool m_reply_on = false;
 		std::vector<std::string> m_replies;
-		size_t m_reply_pos = 0;
+		int m_reply_last = -1;
 		std::vector<std::string> m_keywords;
 		int m_delete_after = 0;
 		int m_delete_scope = 0;
@@ -79,7 +79,6 @@ namespace AvirA
 
 	private:
 		void Worker();
-		void PrimeChannel(const S_Channel& channel);
 		void ScanChannel(const S_Channel& channel);
 		void Emit(S_AutoTarget& item, const std::string& kind, const std::string& text);
 
@@ -88,12 +87,12 @@ namespace AvirA
 		std::vector<S_Channel> m_snapshot;
 		std::vector<std::string> m_watch;
 		std::unordered_map<std::string, std::string> m_seen;
-		std::unordered_map<std::string, bool> m_primed;
 		std::mutex m_lock;
 		std::thread m_thread;
 		std::atomic<bool> m_running = false;
 		std::atomic<bool> m_polling = false;
 		std::shared_ptr<std::atomic<bool>> m_alive;
 		int m_interval = 8;
+		u64 m_started_at = 0;
 	};
 }

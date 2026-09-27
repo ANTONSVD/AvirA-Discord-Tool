@@ -202,7 +202,6 @@ namespace AvirA
 		std::lock_guard<std::mutex> guard(m_lock);
 		m_items.clear();
 		m_seen.clear();
-		m_primed.clear();
 	}
 
 	std::vector<S_AutoTarget*> C_Auto::All()
@@ -446,6 +445,8 @@ namespace AvirA
 		bool expected = false;
 		if (!m_running.compare_exchange_strong(expected, true))
 			return;
+		m_started_at = NowSeconds();
+		srand((unsigned)(NowMillis() & 0xFFFFFFFFu));
 		m_alive = std::make_shared<std::atomic<bool>>(true);
 		m_thread = std::thread(&C_Auto::Worker, this);
 	}
@@ -481,16 +482,7 @@ namespace AvirA
 		}
 		for (size_t i = 0; i < channels.size(); i++)
 		{
-			bool primed = false;
-			{
-				std::lock_guard<std::mutex> guard(m_lock);
-				auto found = m_primed.find(channels[i].m_id);
-				primed = found != m_primed.end() && found->second;
-			}
-			if (!primed)
-				PrimeChannel(channels[i]);
-			else
-				ScanChannel(channels[i]);
+			ScanChannel(channels[i]);
 			std::this_thread::sleep_for(std::chrono::milliseconds(120));
 		}
 		m_polling = false;
@@ -540,28 +532,22 @@ namespace AvirA
 		}
 	}
 
-	void C_Auto::PrimeChannel(const S_Channel& channel)
-	{
-		std::vector<C_Json> recent;
-		if (!m_client->FetchRecent(channel.m_id, 10, "", recent))
-			return;
-		std::lock_guard<std::mutex> guard(m_lock);
-		if (!recent.empty())
-			m_seen[channel.m_id] = recent.front().GetText("id");
-		m_primed[channel.m_id] = true;
-	}
-
 	void C_Auto::ScanChannel(const S_Channel& channel)
 	{
 		std::string after;
+		bool first = false;
+		u64 started = 0;
 		{
 			std::lock_guard<std::mutex> guard(m_lock);
 			auto found = m_seen.find(channel.m_id);
 			if (found != m_seen.end())
 				after = found->second;
+			else
+				first = true;
+			started = m_started_at;
 		}
 		std::vector<C_Json> recent;
-		if (!m_client->FetchRecent(channel.m_id, 25, after, recent))
+		if (!m_client->FetchRecent(channel.m_id, first ? 10 : 25, after, recent))
 			return;
 		if (recent.empty())
 			return;
@@ -577,6 +563,8 @@ namespace AvirA
 				m_seen[channel.m_id] = message_id;
 			}
 			if (author_id.empty() || bot)
+				continue;
+			if (first && started > 0 && C_DiscordClient::SnowflakeTime(message_id) < started)
 				continue;
 			bool active = false;
 			bool reply_on = false;
@@ -600,8 +588,15 @@ namespace AvirA
 				reply_on = target->m_reply_on && !target->m_replies.empty() && (target->m_keywords.empty() || matched);
 				if (reply_on)
 				{
-					reply_text = target->m_replies[target->m_reply_pos % target->m_replies.size()];
-					target->m_reply_pos++;
+					size_t pick = 0;
+					if (target->m_replies.size() > 1)
+					{
+						pick = (size_t)(rand() % (int)target->m_replies.size());
+						if ((int)pick == target->m_reply_last)
+							pick = (pick + 1) % target->m_replies.size();
+					}
+					target->m_reply_last = (int)pick;
+					reply_text = target->m_replies[pick];
 					delete_after = target->m_delete_after;
 					delete_scope = target->m_delete_scope;
 				}
