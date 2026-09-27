@@ -26,6 +26,7 @@ namespace AvirA
 		std::string m_name;
 		bool m_on = true;
 		bool m_reply_on = false;
+		bool m_ladder = false;
 		int m_mode = 0;
 		std::string m_llm_key;
 		std::string m_llm_endpoint;
@@ -73,6 +74,7 @@ namespace AvirA
 
 		void SetTargetOn(const std::string& id, bool value);
 		void SetReplyOn(const std::string& id, bool value);
+		void SetLadder(const std::string& id, bool value);
 		void SetMode(const std::string& id, int mode);
 		void SetLlm(const std::string& id, const std::string& key, const std::string& endpoint, const std::string& model);
 		void SetContext(const std::string& id, const std::string& text);

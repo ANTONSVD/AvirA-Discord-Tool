@@ -1740,6 +1740,13 @@ namespace AvirA
 			m_store.Save();
 		}
 		ImGui::SameLine();
+		bool ladder = current->m_ladder;
+		if (ImGui::Checkbox(("Ladder##" + self_id).c_str(), &ladder))
+		{
+			m_store.Auto()->SetLadder(self_id, ladder);
+			m_store.Save();
+		}
+		ImGui::SameLine();
 		const char* reply_modes[] = { "Manual", "LLM" };
 		int mode_index = current->m_mode == 1 ? 1 : 0;
 		ImGui::PushItemWidth(110);

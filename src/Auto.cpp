@@ -1,5 +1,6 @@
 #include "Auto.hpp"
 #include "LlmContext.hpp"
+#include "Xivivide.hpp"
 
 namespace AvirA
 {
@@ -246,6 +247,53 @@ namespace AvirA
 			if (m_items[i].m_id == id)
 				m_items[i].m_reply_on = value;
 		}
+	}
+
+	void C_Auto::SetLadder(const std::string& id, bool value)
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		for (size_t i = 0; i < m_items.size(); i++)
+		{
+			if (m_items[i].m_id == id)
+				m_items[i].m_ladder = value;
+		}
+	}
+
+	static bool IsXivivide(const std::string& text)
+	{
+		std::string low = Utf8Lowered(Trimmed(text));
+		if (low.empty())
+			return false;
+		for (size_t i = 0; XIVIVIDE_TEMPLATES[i] != nullptr; i++)
+		{
+			if (low == Utf8Lowered(XIVIVIDE_TEMPLATES[i]))
+				return true;
+		}
+		return false;
+	}
+
+	static std::vector<std::string> SplitLadder(const std::string& text)
+	{
+		std::vector<std::string> out;
+		if (IsXivivide(text))
+		{
+			out.push_back(Trimmed(text));
+			return out;
+		}
+		size_t at = 0;
+		while (at < text.size())
+		{
+			size_t end = text.find('\n', at);
+			std::string line = Trimmed(text.substr(at, end == std::string::npos ? std::string::npos : end - at));
+			if (!line.empty())
+				out.push_back(line);
+			if (end == std::string::npos)
+				break;
+			at = end + 1;
+		}
+		if (out.empty())
+			out.push_back(Trimmed(text));
+		return out;
 	}
 
 	void C_Auto::SetMode(const std::string& id, int mode)
@@ -694,6 +742,7 @@ namespace AvirA
 			bool reply_on = false;
 			bool react_on = false;
 			bool matched = false;
+			bool ladder = false;
 			int mode = 0;
 			std::string llm_key;
 			std::string llm_endpoint;
@@ -718,6 +767,7 @@ namespace AvirA
 				content = item.GetText("content");
 				matched = !target->m_keywords.empty() && HasKeyword(content, target->m_keywords);
 				reply_on = target->m_reply_on && (target->m_keywords.empty() || matched);
+				ladder = target->m_ladder;
 				if (reply_on)
 				{
 					mode = target->m_mode;
@@ -775,53 +825,64 @@ namespace AvirA
 				}
 				else
 				{
+					std::vector<std::string> parts;
+					if (ladder)
+						parts = SplitLadder(reply_text);
+					else
+						parts.push_back(reply_text);
+					bool want_delete = delete_after > 0 && (delete_scope == 0 || matched);
 					bool use_multi = !writers.empty();
 					size_t rounds = use_multi ? writers.size() : 1;
 					for (size_t w = 0; w < rounds && m_polling; w++)
 					{
 						C_DiscordClient writer = use_multi ? writers[w].m_client : *m_client;
 						std::string who = use_multi ? writers[w].m_name : "";
-						std::string error;
-						std::string reply_id;
-						if (writer.ReplyText(channel.m_id, message_id, reply_text, error, &reply_id))
+						for (size_t p = 0; p < parts.size() && m_polling; p++)
 						{
+							std::string error;
+							std::string reply_id;
+							if (writer.ReplyText(channel.m_id, message_id, parts[p], error, &reply_id))
+							{
+								{
+									std::lock_guard<std::mutex> guard(m_lock);
+									S_AutoTarget* again = Find(author_id);
+									if (again)
+										Emit(*again, "reply", "Replied" + (who.empty() ? "" : " as " + who) + (llm_used ? std::string(" [llm]") : std::string("")) + (parts.size() > 1 ? " ladder" : "") + " in #" + channel.m_name + ": " + parts[p].substr(0, 80));
+								}
+								if (want_delete && !reply_id.empty())
+								{
+									std::shared_ptr<std::atomic<bool>> alive = m_alive;
+									std::string target_id = author_id;
+									std::string channel_id = channel.m_id;
+									std::string channel_name = channel.m_name;
+									std::thread([this, alive, writer, target_id, channel_id, channel_name, reply_id, delete_after]() mutable {
+										for (int left = delete_after * 10; left > 0; left--)
+										{
+											if (!*alive)
+												return;
+											std::this_thread::sleep_for(std::chrono::milliseconds(100));
+										}
+										if (!*alive)
+											return;
+										if (writer.DeleteMessage(channel_id, reply_id))
+										{
+											std::lock_guard<std::mutex> guard(m_lock);
+											S_AutoTarget* again = Find(target_id);
+											if (again)
+												Emit(*again, "delete", "Deleted reply in #" + channel_name);
+										}
+									}).detach();
+								}
+							}
+							else
 							{
 								std::lock_guard<std::mutex> guard(m_lock);
 								S_AutoTarget* again = Find(author_id);
 								if (again)
-									Emit(*again, "reply", "Replied" + (who.empty() ? "" : " as " + who) + (llm_used ? " [llm]" : "") + " in #" + channel.m_name + ": " + reply_text.substr(0, 80));
+									Emit(*again, "error", "Reply failed #" + channel.m_name + ": " + error);
 							}
-							if (delete_after > 0 && !reply_id.empty() && (delete_scope == 0 || matched))
-							{
-								std::shared_ptr<std::atomic<bool>> alive = m_alive;
-								std::string target_id = author_id;
-								std::string channel_id = channel.m_id;
-								std::string channel_name = channel.m_name;
-								std::thread([this, alive, writer, target_id, channel_id, channel_name, reply_id, delete_after]() mutable {
-									for (int left = delete_after * 10; left > 0; left--)
-									{
-										if (!*alive)
-											return;
-										std::this_thread::sleep_for(std::chrono::milliseconds(100));
-									}
-									if (!*alive)
-										return;
-									if (writer.DeleteMessage(channel_id, reply_id))
-									{
-										std::lock_guard<std::mutex> guard(m_lock);
-										S_AutoTarget* again = Find(target_id);
-										if (again)
-											Emit(*again, "delete", "Deleted reply in #" + channel_name);
-									}
-								}).detach();
-							}
-						}
-						else
-						{
-							std::lock_guard<std::mutex> guard(m_lock);
-							S_AutoTarget* again = Find(author_id);
-							if (again)
-								Emit(*again, "error", "Reply failed #" + channel.m_name + ": " + error);
+							if (p + 1 < parts.size())
+								std::this_thread::sleep_for(std::chrono::milliseconds(500));
 						}
 						if (w + 1 < rounds)
 							std::this_thread::sleep_for(std::chrono::milliseconds(500));
