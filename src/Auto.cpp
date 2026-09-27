@@ -356,12 +356,78 @@ namespace AvirA
 
 	bool C_Auto::TestLlm(const std::string& key, const std::string& endpoint, const std::string& model, std::string& out, std::string& error)
 	{
-		return ReplyLlm(key, endpoint, model, "", "ping", out, error);
+		bool fallback = false;
+		bool ok = ReplyLlm(key, endpoint, model, "", "ping", out, error, &fallback);
+		if (ok && fallback)
+			out = "[fallback] " + out;
+		return ok;
 	}
 
-	bool C_Auto::ReplyLlm(const std::string& key, const std::string& endpoint, const std::string& model, const std::string& custom, const std::string& text, std::string& out, std::string& error)
+	static std::string LlmErrorText(const S_HttpResult& result)
+	{
+		C_Json root = C_Json::Parse(result.m_body);
+		std::string message;
+		const C_Json* nested = root.Find("error");
+		if (nested)
+			message = nested->GetText("message");
+		if (message.empty())
+			message = root.GetText("message");
+		if (message.empty())
+			message = "HTTP " + FormatI32(result.m_status);
+		if (message.size() > 220)
+			message = message.substr(0, 220);
+		return message;
+	}
+
+	static double LlmRetryWait(const S_HttpResult& result)
+	{
+		C_Json busy = C_Json::Parse(result.m_body);
+		double wait = 5;
+		const C_Json* found = busy.Find("retry_after");
+		if (found && found->m_type == E_JsonType::Number)
+			wait = found->m_number;
+		const C_Json* nested = busy.Find("error");
+		if (nested)
+		{
+			const C_Json* inner = nested->Find("retry_after");
+			if (inner && inner->m_type == E_JsonType::Number)
+				wait = inner->m_number;
+		}
+		if (wait < 1)
+			wait = 2;
+		if (wait > 20)
+			wait = 20;
+		return wait;
+	}
+
+	static std::string LlmAnswerText(const S_HttpResult& result, bool& empty)
+	{
+		empty = true;
+		C_Json root = C_Json::Parse(result.m_body);
+		const C_Json* choices = root.Find("choices");
+		if (!choices || choices->m_type != E_JsonType::List || choices->m_list.empty())
+			return "";
+		const C_Json* message = choices->m_list[0].Find("message");
+		if (!message)
+			return "";
+		std::string answer = Trimmed(message->GetText("content"));
+		if (answer.empty())
+			answer = Trimmed(message->GetText("reasoning_content"));
+		if (answer.empty())
+			answer = Trimmed(message->GetText("reasoning"));
+		if (answer.empty())
+			return "";
+		if (answer.size() > 1900)
+			answer = answer.substr(0, 1900);
+		empty = false;
+		return answer;
+	}
+
+	bool C_Auto::ReplyLlm(const std::string& key, const std::string& endpoint, const std::string& model, const std::string& custom, const std::string& text, std::string& out, std::string& error, bool* was_fallback)
 	{
 		std::lock_guard<std::mutex> guard(m_llm_lock);
+		if (was_fallback)
+			*was_fallback = false;
 		if (key.empty() || text.empty())
 		{
 			error = "No key or empty text";
@@ -379,78 +445,54 @@ namespace AvirA
 		C_Json list = C_Json::MakeList();
 		list.Push(message_system);
 		list.Push(message_user);
-		C_Json payload = C_Json::MakeDict();
-		payload.Set("model", model.empty() ? "qwen/qwen3.8-27b:free" : model);
-		payload.Set("messages", list);
 		C_Json temp;
 		temp.m_type = E_JsonType::Number;
 		temp.m_number = 0.9;
-		payload.Set("temperature", temp);
-		payload.Set("max_tokens", (i64)300);
+		std::string first_model = model.empty() ? "qwen/qwen3.8-27b:free" : model;
+		std::string target_url = endpoint.empty() ? "https://openrouter.ai/api/v1/chat/completions" : endpoint;
 		m_llm.SetToken("Bearer " + key);
 		m_llm.SetSite("https://github.com/ANTONSVD/AvirA-Discord-Tool", "AvirA Discord Tool");
-		std::string target_url = endpoint.empty() ? "https://openrouter.ai/api/v1/chat/completions" : endpoint;
-		S_HttpResult result = m_llm.PostJsonFull(target_url, payload.Dump());
-		if (!result.m_ok && (result.m_status == 429 || result.m_status >= 500))
+		for (int round = 0; round < 2; round++)
 		{
-			C_Json busy = C_Json::Parse(result.m_body);
-			double wait = 5;
-			const C_Json* found = busy.Find("retry_after");
-			if (found && found->m_type == E_JsonType::Number)
-				wait = found->m_number;
-			const C_Json* nested_wait = busy.Find("error");
-			if (nested_wait)
+			std::string use_model = round == 0 ? first_model : "openrouter/free";
+			if (round == 1 && first_model == "openrouter/free")
+				break;
+			C_Json payload = C_Json::MakeDict();
+			payload.Set("model", use_model);
+			payload.Set("messages", list);
+			payload.Set("temperature", temp);
+			payload.Set("max_tokens", (i64)300);
+			S_HttpResult result = m_llm.PostJsonFull(target_url, payload.Dump());
+			if (!result.m_ok && (result.m_status == 429 || result.m_status >= 500))
 			{
-				const C_Json* inner = nested_wait->Find("retry_after");
-				if (inner && inner->m_type == E_JsonType::Number)
-					wait = inner->m_number;
+				double wait = LlmRetryWait(result);
+				for (int left = (int)(wait * 10); left > 0 && m_polling; left--)
+					std::this_thread::sleep_for(std::chrono::milliseconds(100));
+				if (m_polling)
+					result = m_llm.PostJsonFull(target_url, payload.Dump());
 			}
-			if (wait < 1)
-				wait = 2;
-			if (wait > 20)
-				wait = 20;
-			for (int left = (int)(wait * 10); left > 0 && m_polling; left--)
-				std::this_thread::sleep_for(std::chrono::milliseconds(100));
-			if (m_polling)
-				result = m_llm.PostJsonFull(target_url, payload.Dump());
+			if (result.m_ok)
+			{
+				bool empty = false;
+				std::string answer = LlmAnswerText(result, empty);
+				if (!empty)
+				{
+					m_llm.ClearToken();
+					out = answer;
+					if (was_fallback)
+						*was_fallback = round == 1;
+					return true;
+				}
+				error = "Empty llm answer";
+			}
+			else
+				error = LlmErrorText(result);
+			if (round == 0 && (result.m_status == 404 || result.m_status == 429 || result.m_status >= 500) && first_model != "openrouter/free")
+				continue;
+			break;
 		}
 		m_llm.ClearToken();
-		if (!result.m_ok)
-		{
-			C_Json root = C_Json::Parse(result.m_body);
-			std::string message;
-			const C_Json* nested = root.Find("error");
-			if (nested)
-				message = nested->GetText("message");
-			if (message.empty())
-				message = root.GetText("message");
-			error = message.empty() ? ("HTTP " + FormatI32(result.m_status)) : message;
-			if (error.size() > 160)
-				error = error.substr(0, 160);
-			return false;
-		}
-		C_Json root = C_Json::Parse(result.m_body);
-		const C_Json* choices = root.Find("choices");
-		if (!choices || choices->m_type != E_JsonType::List || choices->m_list.empty())
-		{
-			error = "Bad llm answer";
-			return false;
-		}
-		const C_Json* message = choices->m_list[0].Find("message");
-		std::string answer = Trimmed(message ? message->GetText("content") : "");
-		if (answer.empty() && message)
-			answer = Trimmed(message->GetText("reasoning_content"));
-		if (answer.empty() && message)
-			answer = Trimmed(message->GetText("reasoning"));
-		if (answer.empty())
-		{
-			error = "Empty llm answer";
-			return false;
-		}
-		if (answer.size() > 1900)
-			answer = answer.substr(0, 1900);
-		out = answer;
-		return true;
+		return false;
 	}
 
 	bool C_Auto::AddKeyword(const std::string& id, const std::string& text)

@@ -106,7 +106,7 @@ namespace AvirA
 	private:
 		void Worker();
 		void ScanChannel(const S_Channel& channel);
-		bool ReplyLlm(const std::string& key, const std::string& endpoint, const std::string& model, const std::string& custom, const std::string& text, std::string& out, std::string& error);
+		bool ReplyLlm(const std::string& key, const std::string& endpoint, const std::string& model, const std::string& custom, const std::string& text, std::string& out, std::string& error, bool* was_fallback = nullptr);
 		void Emit(S_AutoTarget& item, const std::string& kind, const std::string& text);
 
 		C_DiscordClient* m_client = nullptr;
