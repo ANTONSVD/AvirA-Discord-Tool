@@ -143,6 +143,11 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE prev, LPSTR cmd, int show)
 		static const ImWchar emoji[] = { 0x200D, 0x200D, 0x20D0, 0x20FF, 0x2100, 0x214F, 0x2190, 0x21FF, 0x2300, 0x23FF, 0x2460, 0x24FF, 0x25A0, 0x25FF, 0x2600, 0x27BF, 0x2B00, 0x2BFF, 0xFE00, 0xFE0F, 0x1F000, 0x1FAFF, 0xE0020, 0xE007F, 0 };
 		io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\seguisym.ttf", 13.0f, &merge, emoji);
 		io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\seguiemj.ttf", 13.0f, &merge, emoji);
+		static const ImWchar cjk[] = { 0x2000, 0x206F, 0x20A0, 0x20CF, 0x2200, 0x22FF, 0x3000, 0x303F, 0x3040, 0x309F, 0x30A0, 0x30FF, 0xFF00, 0xFFEF, 0 };
+		ImFontConfig cjk_cfg = merge;
+		cjk_cfg.FontNo = 0;
+		if (!io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\msyh.ttc", 13.0f, &cjk_cfg, cjk))
+			io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\yugothm.ttc", 13.0f, &cjk_cfg, cjk);
 	}
 	C_Theme::Apply();
 	ImGui_ImplWin32_Init(window);
