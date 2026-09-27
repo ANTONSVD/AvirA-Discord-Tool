@@ -109,9 +109,6 @@ namespace AvirA
 		std::string m_me_name;
 		std::string m_me_id;
 		std::vector<std::string> m_pending_favorites;
-		bool m_pending_blink = false;
-		int m_pending_blink_on = 30;
-		int m_pending_blink_off = 15;
 		std::vector<S_Account> m_accounts;
 		std::string m_active_account;
 		std::unordered_map<std::string, std::vector<std::string>> m_pending_picks;

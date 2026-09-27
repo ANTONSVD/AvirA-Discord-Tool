@@ -1007,47 +1007,92 @@ namespace AvirA
 		if (m_files.empty())
 			ImGui::TextDisabled("No files. Text, pics and videos supported, up to 10.");
 		auto sender_accounts = m_store.Accounts();
-		if (sender_accounts.size() > 1)
+		ImGui::TextDisabled("Send as:");
+		ImGui::SameLine();
+		auto picked_accounts = m_store.SenderAccounts();
+		for (size_t i = 0; i < sender_accounts.size(); i++)
 		{
-			ImGui::TextDisabled("Send as:");
-			ImGui::SameLine();
-			auto picked_accounts = m_store.SenderAccounts();
-			for (size_t i = 0; i < sender_accounts.size(); i++)
+			bool on = picked_accounts.empty() ? sender_accounts[i].m_id == m_store.MeId() : false;
+			if (!picked_accounts.empty())
 			{
-				bool on = picked_accounts.empty() ? sender_accounts[i].m_id == m_store.MeId() : false;
-				if (!picked_accounts.empty())
+				for (size_t k = 0; k < picked_accounts.size(); k++)
 				{
-					for (size_t k = 0; k < picked_accounts.size(); k++)
+					if (picked_accounts[k] == sender_accounts[i].m_id)
 					{
-						if (picked_accounts[k] == sender_accounts[i].m_id)
+						on = true;
+						break;
+					}
+				}
+			}
+			if (i)
+				ImGui::SameLine();
+			if (ImGui::Checkbox((sender_accounts[i].m_name + "##sa" + sender_accounts[i].m_id).c_str(), &on))
+			{
+				std::vector<std::string> next = picked_accounts;
+				if (on)
+					next.push_back(sender_accounts[i].m_id);
+				else
+				{
+					for (size_t k = 0; k < next.size(); k++)
+					{
+						if (next[k] == sender_accounts[i].m_id)
 						{
-							on = true;
+							next.erase(next.begin() + k);
 							break;
 						}
 					}
 				}
-				if (i)
-					ImGui::SameLine();
-				if (ImGui::Checkbox((sender_accounts[i].m_name + "##sa" + sender_accounts[i].m_id).c_str(), &on))
+				m_store.SetSenderAccounts(next);
+				m_store_dirty = true;
+			}
+		}
+		if (sender_accounts.empty())
+			ImGui::TextDisabled("no accounts");
+		ImGui::PushItemWidth(280);
+		ImGui::InputTextWithHint("##sendtoken", "Add token for send", m_send_token, sizeof(m_send_token), ImGuiInputTextFlags_Password);
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Add token"))
+		{
+			m_send_token_error.clear();
+			std::string token = Trimmed(m_send_token);
+			if (token.empty())
+				m_send_token_error = "Empty token";
+			else
+			{
+				C_DiscordClient check;
+				check.SetToken(token);
+				std::string name;
+				std::string id;
+				if (!check.CheckToken(name, id))
+					m_send_token_error = "Bad token";
+				else
 				{
-					std::vector<std::string> next = picked_accounts;
-					if (on)
-						next.push_back(sender_accounts[i].m_id);
-					else
+					m_store.AddOrUpdateAccount(id, name, token);
+					std::vector<std::string> next = m_store.SenderAccounts();
+					if (next.empty())
+						next.push_back(m_store.MeId());
+					bool known = false;
+					for (size_t k = 0; k < next.size(); k++)
 					{
-						for (size_t k = 0; k < next.size(); k++)
+						if (next[k] == id)
 						{
-							if (next[k] == sender_accounts[i].m_id)
-							{
-								next.erase(next.begin() + k);
-								break;
-							}
+							known = true;
+							break;
 						}
 					}
+					if (!known)
+						next.push_back(id);
 					m_store.SetSenderAccounts(next);
-					m_store_dirty = true;
+					m_store.Save();
+					memset(m_send_token, 0, sizeof(m_send_token));
 				}
 			}
+		}
+		if (!m_send_token_error.empty())
+		{
+			ImGui::SameLine();
+			ImGui::TextColored(ImVec4(1, 0.45f, 0.45f, 1), "%s", m_send_token_error.c_str());
 		}
 		bool spam_on = m_spam_mode;
 		if (ImGui::Checkbox("Spam", &spam_on))
@@ -1883,12 +1928,6 @@ namespace AvirA
 		}
 		ImGui::PopItemWidth();
 		ImGui::SameLine();
-		ImGui::TextDisabled("Blink 10s on / 15s off");
-		if (m_store.Typing()->Running())
-		{
-			ImGui::SameLine();
-			ImGui::TextDisabled(m_store.Typing()->BlinkActive() ? "on %ds" : "off %ds", m_store.Typing()->PhaseLeft());
-		}
 		bool running = m_store.Typing()->Running();
 		if (C_Theme::FadedButton("##typerun", running ? "Stop" : "Start", running, 90))
 		{

@@ -45,6 +45,8 @@ namespace AvirA
 		u64 m_boot = 0;
 
 		char m_token_edit[512] = {};
+		char m_send_token[512] = {};
+		std::string m_send_token_error;
 		char m_id_edit[64] = {};
 		char m_hook_edit[512] = {};
 		char m_message_edit[2048] = {};

@@ -157,9 +157,6 @@ namespace AvirA
 		text += "ctext=" + Escaped(m_clean_text) + "\n";
 		text += "[typing]\n";
 		text += "typing_interval=" + FormatI32(m_typing.Interval()) + "\n";
-		text += "blink=" + std::string(m_typing.Blink() ? "1" : "0") + "\n";
-		text += "blinkon=" + FormatI32(m_typing.BlinkOn()) + "\n";
-		text += "blinkoff=" + FormatI32(m_typing.BlinkOff()) + "\n";
 		{
 			auto picked = m_typing.Picked();
 			text += "typing_picks=";
@@ -430,12 +427,6 @@ namespace AvirA
 				m_clean_text = Unescaped(line.substr(6));
 			if (line.rfind("typing_interval=", 0) == 0)
 				m_typing.SetInterval(std::atoi(line.substr(16).c_str()));
-			if (line.rfind("blink=", 0) == 0)
-				m_pending_blink = Trimmed(line.substr(6)) == "1";
-			if (line.rfind("blinkon=", 0) == 0)
-				m_pending_blink_on = std::atoi(line.substr(8).c_str());
-			if (line.rfind("blinkoff=", 0) == 0)
-				m_pending_blink_off = std::atoi(line.substr(9).c_str());
 			if (line.rfind("typing_picks=", 0) == 0)
 			{
 				std::string list = line.substr(13);
@@ -656,7 +647,6 @@ namespace AvirA
 		}
 		m_pending_favorites = favorites;
 		m_spammer.ApplyFavorites(favorites);
-		m_typing.SetBlink(m_pending_blink, m_pending_blink_on, m_pending_blink_off);
 		for (size_t i = 0; i < auto_watch.size(); i++)
 			m_auto.SetWatch(auto_watch[i], true);
 		for (size_t i = 0; i < watched.size(); i++)
