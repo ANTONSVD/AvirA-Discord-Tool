@@ -1705,9 +1705,9 @@ namespace AvirA
 		if (m_auto_llm_for != self_id)
 		{
 			strncpy_s(m_auto_llm_key, current->m_llm_key.c_str(), sizeof(m_auto_llm_key) - 1);
-			std::string endpoint = current->m_llm_endpoint.empty() ? "https://api.openai.com/v1/chat/completions" : current->m_llm_endpoint;
+			std::string endpoint = current->m_llm_endpoint.empty() ? "https://openrouter.ai/api/v1/chat/completions" : current->m_llm_endpoint;
 			strncpy_s(m_auto_llm_endpoint, endpoint.c_str(), sizeof(m_auto_llm_endpoint) - 1);
-			std::string model = current->m_llm_model.empty() ? "gpt-4o-mini" : current->m_llm_model;
+			std::string model = current->m_llm_model.empty() ? "qwen/qwen3.8-27b:free" : current->m_llm_model;
 			strncpy_s(m_auto_llm_model, model.c_str(), sizeof(m_auto_llm_model) - 1);
 			strncpy_s(m_auto_context, current->m_context.c_str(), sizeof(m_auto_context) - 1);
 			m_auto_llm_for = self_id;

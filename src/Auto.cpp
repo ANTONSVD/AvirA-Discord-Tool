@@ -314,12 +314,12 @@ namespace AvirA
 			if (m_items[i].m_id == id)
 			{
 				m_items[i].m_llm_key = Trimmed(key);
-				m_items[i].m_llm_endpoint = Trimmed(endpoint);
-				if (m_items[i].m_llm_endpoint.empty())
-					m_items[i].m_llm_endpoint = "https://api.openai.com/v1/chat/completions";
-				m_items[i].m_llm_model = Trimmed(model);
-				if (m_items[i].m_llm_model.empty())
-					m_items[i].m_llm_model = "gpt-4o-mini";
+			m_items[i].m_llm_endpoint = Trimmed(endpoint);
+			if (m_items[i].m_llm_endpoint.empty())
+				m_items[i].m_llm_endpoint = "https://openrouter.ai/api/v1/chat/completions";
+			m_items[i].m_llm_model = Trimmed(model);
+			if (m_items[i].m_llm_model.empty())
+				m_items[i].m_llm_model = "qwen/qwen3.8-27b:free";
 			}
 		}
 	}
@@ -374,7 +374,7 @@ namespace AvirA
 		list.Push(message_system);
 		list.Push(message_user);
 		C_Json payload = C_Json::MakeDict();
-		payload.Set("model", model.empty() ? "gpt-4o-mini" : model);
+		payload.Set("model", model.empty() ? "qwen/qwen3.8-27b:free" : model);
 		payload.Set("messages", list);
 		C_Json temp;
 		temp.m_type = E_JsonType::Number;
@@ -382,18 +382,18 @@ namespace AvirA
 		payload.Set("temperature", temp);
 		payload.Set("max_tokens", (i64)300);
 		m_llm.SetToken("Bearer " + key);
-		S_HttpResult result = m_llm.PostJsonFull(endpoint.empty() ? "https://api.openai.com/v1/chat/completions" : endpoint, payload.Dump());
+		m_llm.SetSite("https://github.com/ANTONSVD/AvirA-Discord-Tool", "AvirA Discord Tool");
+		S_HttpResult result = m_llm.PostJsonFull(endpoint.empty() ? "https://openrouter.ai/api/v1/chat/completions" : endpoint, payload.Dump());
 		m_llm.ClearToken();
 		if (!result.m_ok)
 		{
 			C_Json root = C_Json::Parse(result.m_body);
-			std::string message = root.GetText("message");
-			if (!message.empty())
-			{
-				const C_Json* nested = root.Find("error");
-				if (nested)
-					message = nested->GetText("message");
-			}
+			std::string message;
+			const C_Json* nested = root.Find("error");
+			if (nested)
+				message = nested->GetText("message");
+			if (message.empty())
+				message = root.GetText("message");
 			error = message.empty() ? ("HTTP " + FormatI32(result.m_status)) : message;
 			if (error.size() > 160)
 				error = error.substr(0, 160);

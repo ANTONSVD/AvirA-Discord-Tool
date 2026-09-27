@@ -23,6 +23,7 @@ namespace AvirA
 	public:
 		void SetToken(const std::string& token);
 		void SetBase(const std::string& base);
+		void SetSite(const std::string& referer, const std::string& title);
 		void ClearToken();
 
 		S_HttpResult Get(const std::string& path);
@@ -45,5 +46,7 @@ namespace AvirA
 
 		std::string m_token;
 		std::string m_base = AVIRA_DISCORD_API;
+		std::string m_referer;
+		std::string m_title;
 	};
 }

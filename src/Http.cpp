@@ -9,6 +9,12 @@ namespace AvirA
 		m_token = Trimmed(token);
 	}
 
+	void C_Http::SetSite(const std::string& referer, const std::string& title)
+	{
+		m_referer = Trimmed(referer);
+		m_title = Trimmed(title);
+	}
+
 	void C_Http::SetBase(const std::string& base)
 	{
 		m_base = base;
@@ -208,6 +214,16 @@ namespace AvirA
 		{
 			std::string auth = "Authorization: " + m_token + "\r\n";
 			headers += std::wstring(auth.begin(), auth.end());
+		}
+		if (!m_referer.empty())
+		{
+			std::string referer = "HTTP-Referer: " + m_referer + "\r\n";
+			headers += std::wstring(referer.begin(), referer.end());
+		}
+		if (!m_title.empty())
+		{
+			std::string title = "X-Title: " + m_title + "\r\n";
+			headers += std::wstring(title.begin(), title.end());
 		}
 		if (!content.empty())
 		{
