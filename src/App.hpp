@@ -57,13 +57,6 @@ namespace AvirA
 		std::string m_auto_token_error;
 		char m_settings_token[512] = {};
 		std::string m_settings_token_error;
-		char m_auto_llm_key[256] = {};
-		char m_auto_llm_endpoint[256] = {};
-		char m_auto_llm_model[128] = {};
-		char m_auto_context[2048] = {};
-		std::string m_auto_llm_for;
-		std::string m_llm_test;
-		bool m_llm_test_busy = false;
 		char m_auto_reply_edit[512] = {};
 		char m_auto_emoji_edit[64] = {};
 		char m_auto_emoji_filter[64] = {};

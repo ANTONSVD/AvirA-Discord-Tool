@@ -112,7 +112,6 @@
   <ItemGroup>
     <ClInclude Include="src\App.hpp" />
     <ClInclude Include="src\Auto.hpp" />
-    <ClInclude Include="src\LlmContext.hpp" />
     <ClInclude Include="src\Xivivide.hpp" />
     <ClInclude Include="src\Typing.hpp" />
     <ClInclude Include="src\Gateway.hpp" />

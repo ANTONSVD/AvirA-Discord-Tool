@@ -1696,24 +1696,11 @@ namespace AvirA
 		{
 			m_store.Auto()->RemoveTarget(self_id);
 			m_auto_tab.clear();
-			m_auto_llm_for.clear();
-			m_llm_test.clear();
 			m_store.Save();
 			ImGui::EndChild();
 			return;
 		}
 		ImGui::Separator();
-		if (m_auto_llm_for != self_id)
-		{
-			strncpy_s(m_auto_llm_key, current->m_llm_key.c_str(), sizeof(m_auto_llm_key) - 1);
-			std::string endpoint = current->m_llm_endpoint.empty() ? "https://openrouter.ai/api/v1/chat/completions" : current->m_llm_endpoint;
-			strncpy_s(m_auto_llm_endpoint, endpoint.c_str(), sizeof(m_auto_llm_endpoint) - 1);
-			std::string model = current->m_llm_model.empty() ? "qwen/qwen3.8-27b:free" : current->m_llm_model;
-			strncpy_s(m_auto_llm_model, model.c_str(), sizeof(m_auto_llm_model) - 1);
-			strncpy_s(m_auto_context, current->m_context.c_str(), sizeof(m_auto_context) - 1);
-			m_auto_llm_for = self_id;
-			m_llm_test.clear();
-		}
 		{
 			std::vector<S_AutoAccount> push;
 			auto picked = m_store.AutoAccounts();
@@ -1748,16 +1735,6 @@ namespace AvirA
 			m_store.Auto()->SetLadder(self_id, ladder);
 			m_store.Save();
 		}
-		ImGui::SameLine();
-		const char* reply_modes[] = { "Manual", "LLM" };
-		int mode_index = current->m_mode == 1 ? 1 : 0;
-		ImGui::PushItemWidth(110);
-		if (ImGui::Combo(("Mode##" + self_id).c_str(), &mode_index, reply_modes, 2))
-		{
-			m_store.Auto()->SetMode(self_id, mode_index);
-			m_store.Save();
-		}
-		ImGui::PopItemWidth();
 		auto reply_accounts = m_store.Accounts();
 		if (!reply_accounts.empty())
 		{
@@ -1862,66 +1839,6 @@ namespace AvirA
 			if (from.empty())
 				from = m_store.MeName() + " (main)";
 			ImGui::TextDisabled("Reply from: %s", from.c_str());
-		}
-		if (mode_index == 1)
-		{
-			ImGui::PushItemWidth(-1);
-			if (ImGui::InputTextWithHint(("##llmkey" + self_id).c_str(), "Model API key", m_auto_llm_key, sizeof(m_auto_llm_key), ImGuiInputTextFlags_Password))
-			{
-				m_store.Auto()->SetLlm(self_id, m_auto_llm_key, m_auto_llm_endpoint, m_auto_llm_model);
-				m_store_dirty = true;
-			}
-			ImGui::PopItemWidth();
-			ImGui::PushItemWidth(-1);
-			if (ImGui::InputTextWithHint(("##llmurl" + self_id).c_str(), "Endpoint, openai compatible", m_auto_llm_endpoint, sizeof(m_auto_llm_endpoint)))
-			{
-				m_store.Auto()->SetLlm(self_id, m_auto_llm_key, m_auto_llm_endpoint, m_auto_llm_model);
-				m_store_dirty = true;
-			}
-			ImGui::PopItemWidth();
-			ImGui::PushItemWidth(200);
-			if (ImGui::InputTextWithHint(("##llmmodel" + self_id).c_str(), "Model", m_auto_llm_model, sizeof(m_auto_llm_model)))
-			{
-				m_store.Auto()->SetLlm(self_id, m_auto_llm_key, m_auto_llm_endpoint, m_auto_llm_model);
-				m_store_dirty = true;
-			}
-			ImGui::PopItemWidth();
-			ImGui::SameLine();
-			if (m_llm_test_busy)
-			{
-				ImGui::BeginDisabled();
-				ImGui::SmallButton("Testing...");
-				ImGui::EndDisabled();
-			}
-			else
-			{
-				if (ImGui::SmallButton(("Test##" + self_id).c_str()))
-				{
-					m_llm_test.clear();
-					m_llm_test_busy = true;
-					C_Auto* auto_tool = m_store.Auto();
-					std::string key = m_auto_llm_key;
-					std::string url = m_auto_llm_endpoint;
-					std::string model = m_auto_llm_model;
-					std::thread([this, auto_tool, key, url, model]() {
-						std::string out;
-						std::string error;
-						if (auto_tool->TestLlm(key, url, model, out, error))
-							m_llm_test = "OK: " + out.substr(0, 160);
-						else
-							m_llm_test = "FAIL: " + error;
-						m_llm_test_busy = false;
-					}).detach();
-				}
-			}
-			if (!m_llm_test.empty())
-				ImGui::TextDisabled("%s", m_llm_test.c_str());
-			if (ImGui::InputTextMultiline(("##llmctx" + self_id).c_str(), m_auto_context, sizeof(m_auto_context), ImVec2(-1, 80)))
-			{
-				m_store.Auto()->SetContext(self_id, m_auto_context);
-				m_store_dirty = true;
-			}
-			ImGui::TextDisabled("Base bait context baked in code plus your text above go to the model.");
 		}
 		ImGui::PushItemWidth(-90);
 		bool submit_reply = ImGui::InputTextWithHint(("##reply" + self_id).c_str(), "Reply text, Enter to add", m_auto_reply_edit, sizeof(m_auto_reply_edit), ImGuiInputTextFlags_EnterReturnsTrue);

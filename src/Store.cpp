@@ -225,12 +225,7 @@ namespace AvirA
 		for (size_t i = 0; i < targets.size(); i++)
 		{
 			S_AutoTarget* item = targets[i];
-			text += "target=" + item->m_id + "|" + (item->m_on ? "1" : "0") + "|" + (item->m_reply_on ? "1" : "0") + "|" + (item->m_react_on ? "1" : "0") + "|" + FormatI32(item->m_delete_after) + "|" + FormatI32(item->m_delete_scope) + "|" + FormatI32(item->m_mode) + "|" + (item->m_ladder ? "1" : "0") + "\n";
-			if (!item->m_llm_key.empty() || !item->m_context.empty())
-			{
-				text += "llm_" + item->m_id + "=" + Escaped(item->m_llm_endpoint) + "\x1F" + Escaped(item->m_llm_model) + "\x1F" + Escaped(item->m_llm_key) + "\n";
-				text += "ctx_" + item->m_id + "=" + Escaped(item->m_context) + "\n";
-			}
+			text += "target=" + item->m_id + "|" + (item->m_on ? "1" : "0") + "|" + (item->m_reply_on ? "1" : "0") + "|" + (item->m_react_on ? "1" : "0") + "|" + FormatI32(item->m_delete_after) + "|" + FormatI32(item->m_delete_scope) + "|" + (item->m_ladder ? "1" : "0") + "\n";
 			std::string replies;
 			for (size_t k = 0; k < item->m_replies.size(); k++)
 			{
@@ -584,7 +579,6 @@ namespace AvirA
 					bool react_on = false;
 					int delafter = 0;
 					int scope = 0;
-					int mode = 0;
 					bool ladder = false;
 					if (p4 == std::string::npos)
 						react_on = rest.substr(p3 + 1) == "1";
@@ -604,21 +598,19 @@ namespace AvirA
 						react_on = rest.substr(p3 + 1, p4 - p3 - 1) == "1";
 						delafter = std::atoi(rest.substr(p4 + 1, p5 - p4 - 1).c_str());
 						scope = std::atoi(rest.substr(p5 + 1, p6 - p5 - 1).c_str());
-						mode = std::atoi(rest.substr(p6 + 1).c_str());
+						ladder = rest.substr(p6 + 1) == "1";
 					}
 					else
 					{
 						react_on = rest.substr(p3 + 1, p4 - p3 - 1) == "1";
 						delafter = std::atoi(rest.substr(p4 + 1, p5 - p4 - 1).c_str());
 						scope = std::atoi(rest.substr(p5 + 1, p6 - p5 - 1).c_str());
-						mode = std::atoi(rest.substr(p6 + 1, p7 - p6 - 1).c_str());
 						ladder = rest.substr(p7 + 1) == "1";
 					}
 					std::vector<std::string> empty;
 					m_auto.RestoreTarget(id, on, reply_on, react_on, empty, empty);
 					m_auto.SetDeleteAfter(id, delafter);
 					m_auto.SetDeleteScope(id, scope);
-					m_auto.SetMode(id, mode);
 					m_auto.SetLadder(id, ladder);
 				}
 			}
@@ -656,36 +648,6 @@ namespace AvirA
 							p = comma + 1;
 						}
 					}
-				}
-			}
-			if (line.rfind("llm_", 0) == 0)
-			{
-				size_t eq = line.find('=');
-				if (eq != std::string::npos)
-				{
-					std::string id = line.substr(4, eq - 4);
-					S_AutoTarget* item = m_auto.Find(id);
-					if (item)
-					{
-						std::vector<std::string> parts = SplitUnit(line.substr(eq + 1));
-						if (parts.size() > 0)
-							item->m_llm_endpoint = parts[0];
-						if (parts.size() > 1)
-							item->m_llm_model = parts[1];
-						if (parts.size() > 2)
-							item->m_llm_key = parts[2];
-					}
-				}
-			}
-			if (line.rfind("ctx_", 0) == 0)
-			{
-				size_t eq = line.find('=');
-				if (eq != std::string::npos)
-				{
-					std::string id = line.substr(4, eq - 4);
-					S_AutoTarget* item = m_auto.Find(id);
-					if (item)
-						item->m_context = Unescaped(line.substr(eq + 1));
 				}
 			}
 			if (line.rfind("reply_as=", 0) == 0)

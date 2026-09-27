@@ -1,5 +1,4 @@
 #include "Auto.hpp"
-#include "LlmContext.hpp"
 #include "Xivivide.hpp"
 
 namespace AvirA
@@ -296,48 +295,6 @@ namespace AvirA
 		return out;
 	}
 
-	void C_Auto::SetMode(const std::string& id, int mode)
-	{
-		std::lock_guard<std::mutex> guard(m_lock);
-		for (size_t i = 0; i < m_items.size(); i++)
-		{
-			if (m_items[i].m_id == id)
-				m_items[i].m_mode = mode == 1 ? 1 : 0;
-		}
-	}
-
-	void C_Auto::SetLlm(const std::string& id, const std::string& key, const std::string& endpoint, const std::string& model)
-	{
-		std::lock_guard<std::mutex> guard(m_lock);
-		for (size_t i = 0; i < m_items.size(); i++)
-		{
-			if (m_items[i].m_id == id)
-			{
-				m_items[i].m_llm_key = Trimmed(key);
-			m_items[i].m_llm_endpoint = Trimmed(endpoint);
-			if (m_items[i].m_llm_endpoint.empty())
-				m_items[i].m_llm_endpoint = "https://openrouter.ai/api/v1/chat/completions";
-			m_items[i].m_llm_model = Trimmed(model);
-			if (m_items[i].m_llm_model.empty())
-				m_items[i].m_llm_model = "qwen/qwen3.8-27b:free";
-			}
-		}
-	}
-
-	void C_Auto::SetContext(const std::string& id, const std::string& text)
-	{
-		std::lock_guard<std::mutex> guard(m_lock);
-		for (size_t i = 0; i < m_items.size(); i++)
-		{
-			if (m_items[i].m_id == id)
-			{
-				m_items[i].m_context = text;
-				if (m_items[i].m_context.size() > 4000)
-					m_items[i].m_context.resize(4000);
-			}
-		}
-	}
-
 	void C_Auto::SetAccounts(const std::vector<S_AutoAccount>& accounts)
 	{
 		std::lock_guard<std::mutex> guard(m_lock);
@@ -352,162 +309,6 @@ namespace AvirA
 			client.m_client.SetToken(accounts[i].m_token);
 			m_accts.push_back(client);
 		}
-	}
-
-	bool C_Auto::TestLlm(const std::string& key, const std::string& endpoint, const std::string& model, std::string& out, std::string& error)
-	{
-		bool fallback = false;
-		bool ok = ReplyLlm(key, endpoint, model, "", "ping", out, error, &fallback);
-		if (ok && fallback)
-			out = "[fallback] " + out;
-		return ok;
-	}
-
-	static std::string LlmErrorText(const S_HttpResult& result)
-	{
-		C_Json root = C_Json::Parse(result.m_body);
-		std::string message;
-		const C_Json* nested = root.Find("error");
-		if (nested)
-			message = nested->GetText("message");
-		if (message.empty())
-			message = root.GetText("message");
-		if (message.empty())
-			message = "HTTP " + FormatI32(result.m_status);
-		if (message.size() > 220)
-			message = message.substr(0, 220);
-		return message;
-	}
-
-	static double LlmRetryWait(const S_HttpResult& result)
-	{
-		C_Json busy = C_Json::Parse(result.m_body);
-		double wait = 5;
-		const C_Json* found = busy.Find("retry_after");
-		if (found && found->m_type == E_JsonType::Number)
-			wait = found->m_number;
-		const C_Json* nested = busy.Find("error");
-		if (nested)
-		{
-			const C_Json* inner = nested->Find("retry_after");
-			if (inner && inner->m_type == E_JsonType::Number)
-				wait = inner->m_number;
-		}
-		if (wait < 1)
-			wait = 2;
-		if (wait > 20)
-			wait = 20;
-		return wait;
-	}
-
-	static std::string LlmAnswerText(const S_HttpResult& result, bool& empty)
-	{
-		empty = true;
-		C_Json root = C_Json::Parse(result.m_body);
-		const C_Json* choices = root.Find("choices");
-		if (!choices || choices->m_type != E_JsonType::List || choices->m_list.empty())
-			return "";
-		const C_Json* message = choices->m_list[0].Find("message");
-		if (!message)
-			return "";
-		std::string answer = Trimmed(message->GetText("content"));
-		if (answer.empty())
-			answer = Trimmed(message->GetText("reasoning_content"));
-		if (answer.empty())
-			answer = Trimmed(message->GetText("reasoning"));
-		if (answer.empty())
-			return "";
-		if (answer.size() > 1900)
-			answer = answer.substr(0, 1900);
-		empty = false;
-		return answer;
-	}
-
-	bool C_Auto::ReplyLlm(const std::string& key, const std::string& endpoint, const std::string& model, const std::string& custom, const std::string& text, std::string& out, std::string& error, bool* was_fallback)
-	{
-		std::lock_guard<std::mutex> guard(m_llm_lock);
-		if (was_fallback)
-			*was_fallback = false;
-		if (key.empty() || text.empty())
-		{
-			error = "No key or empty text";
-			return false;
-		}
-		std::string system = LLM_BASE_CONTEXT;
-		if (!custom.empty())
-			system += std::string("\n") + custom;
-		C_Json message_system = C_Json::MakeDict();
-		message_system.Set("role", "system");
-		message_system.Set("content", system);
-		C_Json message_user = C_Json::MakeDict();
-		message_user.Set("role", "user");
-		message_user.Set("content", text);
-		C_Json list = C_Json::MakeList();
-		list.Push(message_system);
-		list.Push(message_user);
-		C_Json temp;
-		temp.m_type = E_JsonType::Number;
-		temp.m_number = 0.9;
-		std::string first_model = model.empty() ? "qwen/qwen3.8-27b:free" : model;
-		std::string target_url = endpoint.empty() ? "https://openrouter.ai/api/v1/chat/completions" : endpoint;
-		m_llm.SetToken("Bearer " + key);
-		m_llm.SetSite("https://github.com/ANTONSVD/AvirA-Discord-Tool", "AvirA Discord Tool");
-		for (int round = 0; round < 2; round++)
-		{
-			std::string use_model = round == 0 ? first_model : "openrouter/free";
-			if (round == 1 && first_model == "openrouter/free")
-				break;
-			C_Json payload = C_Json::MakeDict();
-			payload.Set("model", use_model);
-			payload.Set("messages", list);
-			payload.Set("temperature", temp);
-			payload.Set("max_tokens", (i64)600);
-			int last_status = 0;
-			bool saw_empty = false;
-			for (int attempt = 0; attempt < 3; attempt++)
-			{
-				S_HttpResult result = m_llm.PostJsonFull(target_url, payload.Dump());
-				last_status = result.m_status;
-				if (!result.m_ok && (result.m_status == 429 || result.m_status >= 500))
-				{
-					double wait = LlmRetryWait(result);
-					for (int left = (int)(wait * 10); left > 0 && m_polling; left--)
-						std::this_thread::sleep_for(std::chrono::milliseconds(100));
-					if (m_polling)
-						result = m_llm.PostJsonFull(target_url, payload.Dump());
-					last_status = result.m_status;
-				}
-				if (result.m_ok)
-				{
-					bool empty = false;
-					std::string answer = LlmAnswerText(result, empty);
-					if (!empty)
-					{
-						m_llm.ClearToken();
-						out = answer;
-						if (was_fallback)
-							*was_fallback = round == 1;
-						return true;
-					}
-					error = "Empty llm answer";
-					saw_empty = true;
-					if (attempt + 1 < 3)
-					{
-						for (int left = 30; left > 0 && m_polling; left--)
-							std::this_thread::sleep_for(std::chrono::milliseconds(100));
-						continue;
-					}
-				}
-				else
-					error = LlmErrorText(result);
-				break;
-			}
-			if (round == 0 && (last_status == 404 || last_status == 429 || last_status >= 500 || saw_empty) && first_model != "openrouter/free")
-				continue;
-			break;
-		}
-		m_llm.ClearToken();
-		return false;
 	}
 
 	bool C_Auto::AddKeyword(const std::string& id, const std::string& text)
@@ -834,11 +635,6 @@ namespace AvirA
 			bool react_on = false;
 			bool matched = false;
 			bool ladder = false;
-			int mode = 0;
-			std::string llm_key;
-			std::string llm_endpoint;
-			std::string llm_model;
-			std::string llm_custom;
 			std::string content;
 			std::vector<std::string> replies;
 			int reply_last = -1;
@@ -861,11 +657,6 @@ namespace AvirA
 				ladder = target->m_ladder;
 				if (reply_on)
 				{
-					mode = target->m_mode;
-					llm_key = target->m_llm_key;
-					llm_endpoint = target->m_llm_endpoint;
-					llm_model = target->m_llm_model;
-					llm_custom = target->m_context;
 					replies = target->m_replies;
 					reply_last = target->m_reply_last;
 					delete_after = target->m_delete_after;
@@ -880,7 +671,7 @@ namespace AvirA
 				continue;
 			if (reply_on)
 			{
-				std::string manual;
+				std::string reply_text;
 				if (!replies.empty())
 				{
 					size_t pick = 0;
@@ -890,34 +681,23 @@ namespace AvirA
 						if ((int)pick == reply_last)
 							pick = (pick + 1) % replies.size();
 					}
-					manual = replies[pick];
+					reply_text = replies[pick];
 					std::lock_guard<std::mutex> guard(m_lock);
 					S_AutoTarget* again = Find(author_id);
 					if (again)
 						again->m_reply_last = (int)pick;
 				}
-				std::string llm_text;
-				bool llm_used = false;
-				bool llm_tried = false;
-				std::string llm_error;
-				if (mode == 1 && !llm_key.empty() && !content.empty())
-				{
-					llm_tried = true;
-					if (ReplyLlm(llm_key, llm_endpoint, llm_model, llm_custom, content, llm_text, llm_error))
-						llm_used = true;
-				}
-				std::string reply_text = llm_used ? llm_text : manual;
 				if (reply_text.empty())
 				{
 					std::lock_guard<std::mutex> guard(m_lock);
 					S_AutoTarget* again = Find(author_id);
 					if (again)
-						Emit(*again, "error", "Reply skipped #" + channel.m_name + (llm_tried ? ": " + llm_error : ": empty"));
+						Emit(*again, "error", "Reply skipped #" + channel.m_name + ": empty");
 				}
 				else
 				{
 					std::vector<std::string> parts;
-					if (ladder || llm_used)
+					if (ladder)
 						parts = SplitLadder(reply_text);
 					else
 						parts.push_back(reply_text);
@@ -938,7 +718,7 @@ namespace AvirA
 									std::lock_guard<std::mutex> guard(m_lock);
 									S_AutoTarget* again = Find(author_id);
 									if (again)
-										Emit(*again, "reply", "Replied" + (who.empty() ? "" : " as " + who) + (llm_used ? std::string(" [llm]") : std::string("")) + (parts.size() > 1 ? " ladder" : "") + " in #" + channel.m_name + ": " + parts[p].substr(0, 80));
+										Emit(*again, "reply", "Replied" + (who.empty() ? "" : " as " + who) + (parts.size() > 1 ? " ladder" : "") + " in #" + channel.m_name + ": " + parts[p].substr(0, 80));
 								}
 								if (want_delete && !reply_id.empty())
 								{
