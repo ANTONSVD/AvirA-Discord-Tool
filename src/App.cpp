@@ -269,13 +269,39 @@ namespace AvirA
 		m_track_saved = path;
 	}
 
+	static std::string CleanId(const std::string& text)
+	{
+		std::string out;
+		for (size_t i = 0; i < text.size(); i++)
+		{
+			if (text[i] >= '0' && text[i] <= '9')
+				out.push_back(text[i]);
+		}
+		return out;
+	}
+
 	void C_App::AddTracked()
 	{
 		m_track_error.clear();
 		std::string id = Trimmed(m_id_edit);
 		if (id.empty())
 		{
-			m_track_error = "Paste user id";
+			auto list = m_store.Tracker()->All();
+			if (list.empty())
+			{
+				m_track_error = "Paste user id";
+				return;
+			}
+			m_log_tab = list[0]->m_id;
+			if (!m_store.Tracker()->Running())
+			{
+				if (!m_store.Logged())
+				{
+					m_track_error = "Login first";
+					return;
+				}
+				m_store.Tracker()->Start();
+			}
 			return;
 		}
 		std::string error;
@@ -285,7 +311,7 @@ namespace AvirA
 			return;
 		}
 		memset(m_id_edit, 0, sizeof(m_id_edit));
-		m_log_tab = id;
+		m_log_tab = CleanId(id);
 		m_store.Save();
 	}
 
