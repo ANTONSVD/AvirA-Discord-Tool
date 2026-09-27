@@ -324,7 +324,7 @@ namespace AvirA
 			m_spam_error = error;
 			return;
 		}
-		m_store.Spammer()->ApplyFavorites(m_store.PendingFavorites());
+		m_store.Spammer()->ApplyFavorites(m_store.SavedFavorites());
 		if (m_store.Spammer()->Entries().empty())
 			m_spam_error = "No servers";
 	}
@@ -341,13 +341,10 @@ namespace AvirA
 			m_spam_error = error;
 		else
 		{
-			auto pending = m_store.PendingPicks();
-			auto found = pending.find(guild_id);
-			if (found != pending.end())
-			{
+			auto saved = m_store.SavedPicks();
+			auto found = saved.find(guild_id);
+			if (found != saved.end())
 				m_store.Spammer()->ApplyPicks(guild_id, found->second);
-				m_store.ForgetPendingPicks(guild_id);
-			}
 			if (entries[index].m_channels.empty())
 				m_spam_error = guild_name + ": no text channels";
 		}
@@ -364,12 +361,9 @@ namespace AvirA
 			std::string error;
 			std::atomic<int> done(0);
 			spammer->RefreshAllChannels(error, &done);
-			auto pending = m_store.PendingPicks();
-			for (auto& pair : pending)
-			{
+			auto saved = m_store.SavedPicks();
+			for (auto& pair : saved)
 				spammer->ApplyPicks(pair.first, pair.second);
-				m_store.ForgetPendingPicks(pair.first);
-			}
 			size_t total = 0;
 			for (size_t i = 0; i < spammer->Entries().size(); i++)
 				total += spammer->Entries()[i].m_channels.size();
@@ -671,7 +665,7 @@ namespace AvirA
 					m_clean_busy = false;
 					return;
 				}
-				spammer->ApplyFavorites(m_store.PendingFavorites());
+				spammer->ApplyFavorites(m_store.SavedFavorites());
 			}
 			std::vector<std::string> guild_ids;
 			if (guild_index <= 0)
@@ -1379,7 +1373,6 @@ namespace AvirA
 					if (ImGui::Checkbox(label.c_str(), &picked))
 					{
 						entry.m_picked[k] = picked;
-						m_store.ForgetPendingPicks(entry.m_guild.m_id);
 						m_store_dirty = true;
 					}
 				}
@@ -1668,7 +1661,7 @@ namespace AvirA
 		}
 		if (m_auto_tab.empty() && !list.empty())
 			m_auto_tab = list[0]->m_id;
-		ImGui::BeginChild("auto_tabs", ImVec2(0, 46), true);
+		ImGui::BeginChild("auto_tabs", ImVec2(0, 56), true, ImGuiWindowFlags_HorizontalScrollbar);
 		for (size_t i = 0; i < list.size(); i++)
 		{
 			S_AutoTarget* item = list[i];
@@ -1689,7 +1682,7 @@ namespace AvirA
 		if (!current)
 			return;
 		std::string self_id = current->m_id;
-		ImGui::BeginChild("auto_view", ImVec2(0, 330), true);
+		ImGui::BeginChild("auto_view", ImVec2(0, 460), true);
 		ImGui::Text("%s", current->m_name.empty() ? current->m_id.c_str() : (current->m_name + "  " + current->m_id).c_str());
 		ImGui::SameLine();
 		bool on = current->m_on;
@@ -1703,16 +1696,128 @@ namespace AvirA
 		{
 			m_store.Auto()->RemoveTarget(self_id);
 			m_auto_tab.clear();
+			m_auto_llm_for.clear();
 			m_store.Save();
 			ImGui::EndChild();
 			return;
 		}
 		ImGui::Separator();
+		if (m_auto_llm_for != self_id)
+		{
+			strncpy_s(m_auto_llm_key, current->m_llm_key.c_str(), sizeof(m_auto_llm_key) - 1);
+			std::string endpoint = current->m_llm_endpoint.empty() ? "https://api.openai.com/v1/chat/completions" : current->m_llm_endpoint;
+			strncpy_s(m_auto_llm_endpoint, endpoint.c_str(), sizeof(m_auto_llm_endpoint) - 1);
+			std::string model = current->m_llm_model.empty() ? "gpt-4o-mini" : current->m_llm_model;
+			strncpy_s(m_auto_llm_model, model.c_str(), sizeof(m_auto_llm_model) - 1);
+			strncpy_s(m_auto_context, current->m_context.c_str(), sizeof(m_auto_context) - 1);
+			m_auto_llm_for = self_id;
+		}
+		{
+			std::vector<S_AutoAccount> push;
+			auto picked = m_store.AutoAccounts();
+			auto accounts = m_store.Accounts();
+			for (size_t i = 0; i < picked.size(); i++)
+			{
+				for (size_t k = 0; k < accounts.size(); k++)
+				{
+					if (accounts[k].m_id == picked[i])
+					{
+						S_AutoAccount item;
+						item.m_id = accounts[k].m_id;
+						item.m_name = accounts[k].m_name;
+						item.m_token = accounts[k].m_token;
+						push.push_back(item);
+						break;
+					}
+				}
+			}
+			m_store.Auto()->SetAccounts(push);
+		}
 		bool reply_on = current->m_reply_on;
 		if (ImGui::Checkbox(("Auto reply##" + self_id).c_str(), &reply_on))
 		{
 			m_store.Auto()->SetReplyOn(self_id, reply_on);
 			m_store.Save();
+		}
+		ImGui::SameLine();
+		const char* reply_modes[] = { "Manual", "LLM" };
+		int mode_index = current->m_mode == 1 ? 1 : 0;
+		ImGui::PushItemWidth(110);
+		if (ImGui::Combo(("Mode##" + self_id).c_str(), &mode_index, reply_modes, 2))
+		{
+			m_store.Auto()->SetMode(self_id, mode_index);
+			m_store.Save();
+		}
+		ImGui::PopItemWidth();
+		auto reply_accounts = m_store.Accounts();
+		if (!reply_accounts.empty())
+		{
+			ImGui::TextDisabled("Reply as:");
+			ImGui::SameLine();
+			auto picked_reply = m_store.AutoAccounts();
+			for (size_t i = 0; i < reply_accounts.size(); i++)
+			{
+				bool on = false;
+				for (size_t k = 0; k < picked_reply.size(); k++)
+				{
+					if (picked_reply[k] == reply_accounts[i].m_id)
+					{
+						on = true;
+						break;
+					}
+				}
+				if (i)
+					ImGui::SameLine();
+				if (ImGui::Checkbox((reply_accounts[i].m_name + "##ra" + reply_accounts[i].m_id).c_str(), &on))
+				{
+					std::vector<std::string> next = picked_reply;
+					if (on)
+						next.push_back(reply_accounts[i].m_id);
+					else
+					{
+						for (size_t k = 0; k < next.size(); k++)
+						{
+							if (next[k] == reply_accounts[i].m_id)
+							{
+								next.erase(next.begin() + k);
+								break;
+							}
+						}
+					}
+					m_store.SetAutoAccounts(next);
+					m_store_dirty = true;
+				}
+			}
+		}
+		if (mode_index == 1)
+		{
+			ImGui::PushItemWidth(-1);
+			if (ImGui::InputTextWithHint(("##llmkey" + self_id).c_str(), "Model API key", m_auto_llm_key, sizeof(m_auto_llm_key), ImGuiInputTextFlags_Password))
+			{
+				m_store.Auto()->SetLlm(self_id, m_auto_llm_key, m_auto_llm_endpoint, m_auto_llm_model);
+				m_store_dirty = true;
+			}
+			ImGui::PopItemWidth();
+			ImGui::PushItemWidth(-1);
+			if (ImGui::InputTextWithHint(("##llmurl" + self_id).c_str(), "Endpoint, openai compatible", m_auto_llm_endpoint, sizeof(m_auto_llm_endpoint)))
+			{
+				m_store.Auto()->SetLlm(self_id, m_auto_llm_key, m_auto_llm_endpoint, m_auto_llm_model);
+				m_store_dirty = true;
+			}
+			ImGui::PopItemWidth();
+			ImGui::PushItemWidth(200);
+			if (ImGui::InputTextWithHint(("##llmmodel" + self_id).c_str(), "Model", m_auto_llm_model, sizeof(m_auto_llm_model)))
+			{
+				m_store.Auto()->SetLlm(self_id, m_auto_llm_key, m_auto_llm_endpoint, m_auto_llm_model);
+				m_store_dirty = true;
+			}
+			ImGui::PopItemWidth();
+			if (ImGui::InputTextMultiline(("##llmctx" + self_id).c_str(), m_auto_context, sizeof(m_auto_context), ImVec2(-1, 80)))
+			{
+				m_store.Auto()->SetContext(self_id, m_auto_context);
+				m_store_dirty = true;
+			}
+			ImGui::TextDisabled("Base bait context baked in code plus your text above go to the model.");
 		}
 		ImGui::PushItemWidth(-90);
 		bool submit_reply = ImGui::InputTextWithHint(("##reply" + self_id).c_str(), "Reply text, Enter to add", m_auto_reply_edit, sizeof(m_auto_reply_edit), ImGuiInputTextFlags_EnterReturnsTrue);
@@ -1732,6 +1837,9 @@ namespace AvirA
 			ImGui::TextDisabled("%llu.", (unsigned long long)(i + 1));
 			ImGui::SameLine();
 			ImGui::TextWrapped("%s", current->m_replies[i].c_str());
+			ImGui::SameLine(ImGui::GetWindowWidth() - 90);
+			if (ImGui::SmallButton(("Copy##r" + self_id + FormatU64(i)).c_str()))
+				ImGui::SetClipboardText(current->m_replies[i].c_str());
 			ImGui::SameLine(ImGui::GetWindowWidth() - 40);
 			if (ImGui::SmallButton(("x##r" + self_id + FormatU64(i)).c_str()))
 			{
@@ -1741,7 +1849,7 @@ namespace AvirA
 			}
 		}
 		if (current->m_replies.empty())
-			ImGui::TextDisabled("No replies yet, they go round-robin.");
+			ImGui::TextDisabled("No replies yet, they go random.");
 		ImGui::PushItemWidth(220);
 		bool submit_keyword = ImGui::InputTextWithHint(("##kw" + self_id).c_str(), "Keyword, Enter to add", m_auto_keyword_edit, sizeof(m_auto_keyword_edit), ImGuiInputTextFlags_EnterReturnsTrue);
 		ImGui::PopItemWidth();
@@ -1789,10 +1897,10 @@ namespace AvirA
 		if (what_index != 0)
 		{
 			ImGui::SameLine();
-			const char* del_labels[] = { "30 sec", "1 min", "5 min", "15 min", "1 hour" };
-			int del_values[] = { 30, 60, 300, 900, 3600 };
-			int del_index = 1;
-			for (int i = 0; i < 5; i++)
+			const char* del_labels[] = { "5 sec", "15 sec", "30 sec", "1 min", "5 min", "15 min", "1 hour" };
+			int del_values[] = { 5, 15, 30, 60, 300, 900, 3600 };
+			int del_index = 2;
+			for (int i = 0; i < 7; i++)
 			{
 				if (del_values[i] == seconds)
 				{
@@ -1801,7 +1909,7 @@ namespace AvirA
 				}
 			}
 			ImGui::PushItemWidth(110);
-			if (ImGui::Combo(("After##" + self_id).c_str(), &del_index, del_labels, 5))
+			if (ImGui::Combo(("After##" + self_id).c_str(), &del_index, del_labels, 7))
 			{
 				m_store.Auto()->SetDeleteAfter(self_id, del_values[del_index]);
 				m_store.Save();

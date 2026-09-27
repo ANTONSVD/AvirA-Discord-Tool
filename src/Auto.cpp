@@ -1,4 +1,5 @@
 #include "Auto.hpp"
+#include "LlmContext.hpp"
 
 namespace AvirA
 {
@@ -245,6 +246,129 @@ namespace AvirA
 			if (m_items[i].m_id == id)
 				m_items[i].m_reply_on = value;
 		}
+	}
+
+	void C_Auto::SetMode(const std::string& id, int mode)
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		for (size_t i = 0; i < m_items.size(); i++)
+		{
+			if (m_items[i].m_id == id)
+				m_items[i].m_mode = mode == 1 ? 1 : 0;
+		}
+	}
+
+	void C_Auto::SetLlm(const std::string& id, const std::string& key, const std::string& endpoint, const std::string& model)
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		for (size_t i = 0; i < m_items.size(); i++)
+		{
+			if (m_items[i].m_id == id)
+			{
+				m_items[i].m_llm_key = Trimmed(key);
+				m_items[i].m_llm_endpoint = Trimmed(endpoint);
+				if (m_items[i].m_llm_endpoint.empty())
+					m_items[i].m_llm_endpoint = "https://api.openai.com/v1/chat/completions";
+				m_items[i].m_llm_model = Trimmed(model);
+				if (m_items[i].m_llm_model.empty())
+					m_items[i].m_llm_model = "gpt-4o-mini";
+			}
+		}
+	}
+
+	void C_Auto::SetContext(const std::string& id, const std::string& text)
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		for (size_t i = 0; i < m_items.size(); i++)
+		{
+			if (m_items[i].m_id == id)
+			{
+				m_items[i].m_context = text;
+				if (m_items[i].m_context.size() > 4000)
+					m_items[i].m_context.resize(4000);
+			}
+		}
+	}
+
+	void C_Auto::SetAccounts(const std::vector<S_AutoAccount>& accounts)
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		m_accts.clear();
+		for (size_t i = 0; i < accounts.size() && i < 10; i++)
+		{
+			if (accounts[i].m_token.empty())
+				continue;
+			S_AutoClient client;
+			client.m_id = accounts[i].m_id;
+			client.m_name = accounts[i].m_name;
+			client.m_client.SetToken(accounts[i].m_token);
+			m_accts.push_back(client);
+		}
+	}
+
+	bool C_Auto::ReplyLlm(const std::string& key, const std::string& endpoint, const std::string& model, const std::string& custom, const std::string& text, std::string& out, std::string& error)
+	{
+		if (key.empty() || text.empty())
+		{
+			error = "No key or empty text";
+			return false;
+		}
+		std::string system = LLM_BASE_CONTEXT;
+		if (!custom.empty())
+			system += std::string("\n") + custom;
+		C_Json message_system = C_Json::MakeDict();
+		message_system.Set("role", "system");
+		message_system.Set("content", system);
+		C_Json message_user = C_Json::MakeDict();
+		message_user.Set("role", "user");
+		message_user.Set("content", text);
+		C_Json list = C_Json::MakeList();
+		list.Push(message_system);
+		list.Push(message_user);
+		C_Json payload = C_Json::MakeDict();
+		payload.Set("model", model.empty() ? "gpt-4o-mini" : model);
+		payload.Set("messages", list);
+		C_Json temp;
+		temp.m_type = E_JsonType::Number;
+		temp.m_number = 0.9;
+		payload.Set("temperature", temp);
+		payload.Set("max_tokens", (i64)300);
+		m_llm.SetToken("Bearer " + key);
+		S_HttpResult result = m_llm.PostJsonFull(endpoint.empty() ? "https://api.openai.com/v1/chat/completions" : endpoint, payload.Dump());
+		m_llm.ClearToken();
+		if (!result.m_ok)
+		{
+			C_Json root = C_Json::Parse(result.m_body);
+			std::string message = root.GetText("message");
+			if (!message.empty())
+			{
+				const C_Json* nested = root.Find("error");
+				if (nested)
+					message = nested->GetText("message");
+			}
+			error = message.empty() ? ("HTTP " + FormatI32(result.m_status)) : message;
+			if (error.size() > 160)
+				error = error.substr(0, 160);
+			return false;
+		}
+		C_Json root = C_Json::Parse(result.m_body);
+		const C_Json* choices = root.Find("choices");
+		if (!choices || choices->m_type != E_JsonType::List || choices->m_list.empty())
+		{
+			error = "Bad llm answer";
+			return false;
+		}
+		const C_Json* message = choices->m_list[0].Find("message");
+		std::string answer = Trimmed(message ? message->GetText("content") : "");
+		if (answer.empty())
+		{
+			error = "Empty llm answer";
+			return false;
+		}
+		if (answer.size() > 1900)
+			answer = answer.substr(0, 1900);
+		out = answer;
+		return true;
 	}
 
 	bool C_Auto::AddKeyword(const std::string& id, const std::string& text)
@@ -570,10 +694,18 @@ namespace AvirA
 			bool reply_on = false;
 			bool react_on = false;
 			bool matched = false;
-			std::string reply_text;
+			int mode = 0;
+			std::string llm_key;
+			std::string llm_endpoint;
+			std::string llm_model;
+			std::string llm_custom;
+			std::string content;
+			std::vector<std::string> replies;
+			int reply_last = -1;
 			int delete_after = 0;
 			int delete_scope = 0;
 			std::vector<S_AutoEmoji> emojis;
+			std::vector<S_AutoClient> writers;
 			{
 				std::lock_guard<std::mutex> guard(m_lock);
 				S_AutoTarget* target = Find(author_id);
@@ -583,73 +715,117 @@ namespace AvirA
 				std::string author_name = author ? author->GetText("username") : author_id;
 				if (target->m_name.empty())
 					target->m_name = author_name;
-				std::string content = item.GetText("content");
+				content = item.GetText("content");
 				matched = !target->m_keywords.empty() && HasKeyword(content, target->m_keywords);
-				reply_on = target->m_reply_on && !target->m_replies.empty() && (target->m_keywords.empty() || matched);
+				reply_on = target->m_reply_on && (target->m_keywords.empty() || matched);
 				if (reply_on)
 				{
-					size_t pick = 0;
-					if (target->m_replies.size() > 1)
-					{
-						pick = (size_t)(rand() % (int)target->m_replies.size());
-						if ((int)pick == target->m_reply_last)
-							pick = (pick + 1) % target->m_replies.size();
-					}
-					target->m_reply_last = (int)pick;
-					reply_text = target->m_replies[pick];
+					mode = target->m_mode;
+					llm_key = target->m_llm_key;
+					llm_endpoint = target->m_llm_endpoint;
+					llm_model = target->m_llm_model;
+					llm_custom = target->m_context;
+					replies = target->m_replies;
+					reply_last = target->m_reply_last;
 					delete_after = target->m_delete_after;
 					delete_scope = target->m_delete_scope;
 				}
 				react_on = target->m_react_on && !target->m_emojis.empty();
 				if (react_on)
 					emojis = target->m_emojis;
+				writers = m_accts;
 			}
 			if (!active)
 				continue;
 			if (reply_on)
 			{
-				std::string error;
-				std::string reply_id;
-				if (m_client->ReplyText(channel.m_id, message_id, reply_text, error, &reply_id))
+				std::string manual;
+				if (!replies.empty())
 				{
+					size_t pick = 0;
+					if (replies.size() > 1)
 					{
-						std::lock_guard<std::mutex> guard(m_lock);
-						S_AutoTarget* again = Find(author_id);
-						if (again)
-							Emit(*again, "reply", "Replied in #" + channel.m_name + ": " + reply_text.substr(0, 80));
+						pick = (size_t)(rand() % (int)replies.size());
+						if ((int)pick == reply_last)
+							pick = (pick + 1) % replies.size();
 					}
-					if (delete_after > 0 && !reply_id.empty() && (delete_scope == 0 || matched))
-					{
-						std::shared_ptr<std::atomic<bool>> alive = m_alive;
-						C_DiscordClient* client = m_client;
-						std::string target_id = author_id;
-						std::string channel_id = channel.m_id;
-						std::string channel_name = channel.m_name;
-						std::thread([this, alive, client, target_id, channel_id, channel_name, reply_id, delete_after]() {
-							for (int left = delete_after * 10; left > 0; left--)
-							{
-								if (!*alive)
-									return;
-								std::this_thread::sleep_for(std::chrono::milliseconds(100));
-							}
-							if (!*alive || !client)
-								return;
-							if (client->DeleteMessage(channel_id, reply_id))
-							{
-								std::lock_guard<std::mutex> guard(m_lock);
-								S_AutoTarget* again = Find(target_id);
-								if (again)
-									Emit(*again, "delete", "Deleted reply in #" + channel_name);
-							}
-						}).detach();
-					}
+					manual = replies[pick];
+					std::lock_guard<std::mutex> guard(m_lock);
+					S_AutoTarget* again = Find(author_id);
+					if (again)
+						again->m_reply_last = (int)pick;
 				}
-				else
+				std::string llm_text;
+				bool llm_used = false;
+				bool llm_tried = false;
+				std::string llm_error;
+				if (mode == 1 && !llm_key.empty() && !content.empty())
+				{
+					llm_tried = true;
+					if (ReplyLlm(llm_key, llm_endpoint, llm_model, llm_custom, content, llm_text, llm_error))
+						llm_used = true;
+				}
+				std::string reply_text = llm_used ? llm_text : manual;
+				if (reply_text.empty())
 				{
 					std::lock_guard<std::mutex> guard(m_lock);
 					S_AutoTarget* again = Find(author_id);
 					if (again)
-						Emit(*again, "error", "Reply failed #" + channel.m_name + ": " + error);
+						Emit(*again, "error", "Reply skipped #" + channel.m_name + (llm_tried ? ": " + llm_error : ": empty"));
+				}
+				else
+				{
+					bool use_multi = !writers.empty();
+					size_t rounds = use_multi ? writers.size() : 1;
+					for (size_t w = 0; w < rounds && m_polling; w++)
+					{
+						C_DiscordClient writer = use_multi ? writers[w].m_client : *m_client;
+						std::string who = use_multi ? writers[w].m_name : "";
+						std::string error;
+						std::string reply_id;
+						if (writer.ReplyText(channel.m_id, message_id, reply_text, error, &reply_id))
+						{
+							{
+								std::lock_guard<std::mutex> guard(m_lock);
+								S_AutoTarget* again = Find(author_id);
+								if (again)
+									Emit(*again, "reply", "Replied" + (who.empty() ? "" : " as " + who) + (llm_used ? " [llm]" : "") + " in #" + channel.m_name + ": " + reply_text.substr(0, 80));
+							}
+							if (delete_after > 0 && !reply_id.empty() && (delete_scope == 0 || matched))
+							{
+								std::shared_ptr<std::atomic<bool>> alive = m_alive;
+								std::string target_id = author_id;
+								std::string channel_id = channel.m_id;
+								std::string channel_name = channel.m_name;
+								std::thread([this, alive, writer, target_id, channel_id, channel_name, reply_id, delete_after]() mutable {
+									for (int left = delete_after * 10; left > 0; left--)
+									{
+										if (!*alive)
+											return;
+										std::this_thread::sleep_for(std::chrono::milliseconds(100));
+									}
+									if (!*alive)
+										return;
+									if (writer.DeleteMessage(channel_id, reply_id))
+									{
+										std::lock_guard<std::mutex> guard(m_lock);
+										S_AutoTarget* again = Find(target_id);
+										if (again)
+											Emit(*again, "delete", "Deleted reply in #" + channel_name);
+									}
+								}).detach();
+							}
+						}
+						else
+						{
+							std::lock_guard<std::mutex> guard(m_lock);
+							S_AutoTarget* again = Find(author_id);
+							if (again)
+								Emit(*again, "error", "Reply failed #" + channel.m_name + ": " + error);
+						}
+						if (w + 1 < rounds)
+							std::this_thread::sleep_for(std::chrono::milliseconds(500));
+					}
 				}
 				std::this_thread::sleep_for(std::chrono::milliseconds(250));
 			}

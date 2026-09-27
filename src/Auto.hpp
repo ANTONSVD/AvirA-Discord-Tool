@@ -26,6 +26,11 @@ namespace AvirA
 		std::string m_name;
 		bool m_on = true;
 		bool m_reply_on = false;
+		int m_mode = 0;
+		std::string m_llm_key;
+		std::string m_llm_endpoint;
+		std::string m_llm_model;
+		std::string m_context;
 		std::vector<std::string> m_replies;
 		int m_reply_last = -1;
 		std::vector<std::string> m_keywords;
@@ -34,6 +39,20 @@ namespace AvirA
 		bool m_react_on = false;
 		std::vector<S_AutoEmoji> m_emojis;
 		std::vector<S_AutoLog> m_logs;
+	};
+
+	struct S_AutoAccount
+	{
+		std::string m_id;
+		std::string m_name;
+		std::string m_token;
+	};
+
+	struct S_AutoClient
+	{
+		std::string m_id;
+		std::string m_name;
+		C_DiscordClient m_client;
 	};
 
 	class C_Auto
@@ -54,12 +73,16 @@ namespace AvirA
 
 		void SetTargetOn(const std::string& id, bool value);
 		void SetReplyOn(const std::string& id, bool value);
+		void SetMode(const std::string& id, int mode);
+		void SetLlm(const std::string& id, const std::string& key, const std::string& endpoint, const std::string& model);
+		void SetContext(const std::string& id, const std::string& text);
 		bool AddReply(const std::string& id, const std::string& text);
 		void RemoveReply(const std::string& id, size_t index);
 		bool AddKeyword(const std::string& id, const std::string& text);
 		void RemoveKeyword(const std::string& id, size_t index);
 		void SetDeleteAfter(const std::string& id, int seconds);
 		void SetDeleteScope(const std::string& id, int scope);
+		void SetAccounts(const std::vector<S_AutoAccount>& accounts);
 		void SetReactOn(const std::string& id, bool value);
 		bool AddEmoji(const std::string& id, const std::string& raw);
 		void RemoveEmoji(const std::string& id, size_t index);
@@ -80,9 +103,12 @@ namespace AvirA
 	private:
 		void Worker();
 		void ScanChannel(const S_Channel& channel);
+		bool ReplyLlm(const std::string& key, const std::string& endpoint, const std::string& model, const std::string& custom, const std::string& text, std::string& out, std::string& error);
 		void Emit(S_AutoTarget& item, const std::string& kind, const std::string& text);
 
 		C_DiscordClient* m_client = nullptr;
+		C_Http m_llm;
+		std::vector<S_AutoClient> m_accts;
 		std::vector<S_AutoTarget> m_items;
 		std::vector<S_Channel> m_snapshot;
 		std::vector<std::string> m_watch;

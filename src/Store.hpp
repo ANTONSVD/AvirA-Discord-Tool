@@ -46,7 +46,7 @@ namespace AvirA
 		void SetMe(const std::string& name, const std::string& id);
 
 		std::string ConfigPath() const;
-		std::vector<std::string> PendingFavorites() const;
+		std::vector<std::string> SavedFavorites() const;
 
 		struct S_Account
 		{
@@ -63,11 +63,12 @@ namespace AvirA
 		void ClearAccounts();
 		std::string TokenFor(const std::string& id) const;
 
-		std::unordered_map<std::string, std::vector<std::string>> PendingPicks() const;
-		void ForgetPendingPicks(const std::string& guild);
+		std::unordered_map<std::string, std::vector<std::string>> SavedPicks() const;
 		std::string PendingCleanGuild() const;
 		std::string PendingCleanChannel() const;
 		void ClearPendingClean();
+		std::vector<std::string> AutoAccounts() const;
+		void SetAutoAccounts(const std::vector<std::string>& ids);
 
 		void SetCleanerState(const std::string& guild, const std::string& channel, int hours, int limit, const std::string& text, bool only);
 		int CleanHours() const;
@@ -113,10 +114,11 @@ namespace AvirA
 		std::string m_token;
 		std::string m_me_name;
 		std::string m_me_id;
-		std::vector<std::string> m_pending_favorites;
+		std::vector<std::string> m_saved_favs;
+		std::unordered_map<std::string, std::vector<std::string>> m_saved_picks;
+		std::vector<std::string> m_auto_accounts;
 		std::vector<S_Account> m_accounts;
 		std::string m_active_account;
-		std::unordered_map<std::string, std::vector<std::string>> m_pending_picks;
 		std::string m_pending_clean_guild = "all";
 		std::string m_pending_clean_channel = "all";
 		std::string m_clean_guild_id = "all";

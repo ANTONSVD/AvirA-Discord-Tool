@@ -104,32 +104,48 @@ namespace AvirA
 		}
 		text += "\n";
 		text += "[sender]\n";
-		auto favorites = m_spammer.Favorites();
+		auto& live_entries = m_spammer.Entries();
+		if (!live_entries.empty())
+		{
+			m_saved_favs = m_spammer.Favorites();
+			for (size_t i = 0; i < live_entries.size(); i++)
+			{
+				bool any = false;
+				std::vector<std::string> ids;
+				for (size_t k = 0; k < live_entries[i].m_channels.size() && k < live_entries[i].m_picked.size(); k++)
+				{
+					if (live_entries[i].m_picked[k])
+					{
+						ids.push_back(live_entries[i].m_channels[k].m_id);
+						any = true;
+					}
+				}
+				if (any)
+					m_saved_picks[live_entries[i].m_guild.m_id] = ids;
+				else
+					m_saved_picks.erase(live_entries[i].m_guild.m_id);
+			}
+		}
 		text += "favorites=";
-		for (size_t i = 0; i < favorites.size(); i++)
+		for (size_t i = 0; i < m_saved_favs.size(); i++)
 		{
 			if (i)
 				text += ",";
-			text += favorites[i];
+			text += m_saved_favs[i];
 		}
 		text += "\n";
-		auto& live_entries = m_spammer.Entries();
-		for (size_t i = 0; i < live_entries.size(); i++)
+		for (auto& pair : m_saved_picks)
 		{
-			bool any = false;
-			std::string picks;
-			for (size_t k = 0; k < live_entries[i].m_channels.size() && k < live_entries[i].m_picked.size(); k++)
+			if (pair.second.empty())
+				continue;
+			text += "pick_" + pair.first + "=";
+			for (size_t i = 0; i < pair.second.size(); i++)
 			{
-				if (live_entries[i].m_picked[k])
-				{
-					if (any)
-						picks += ",";
-					picks += live_entries[i].m_channels[k].m_id;
-					any = true;
-				}
+				if (i)
+					text += ",";
+				text += pair.second[i];
 			}
-			if (any)
-				text += "pick_" + live_entries[i].m_guild.m_id + "=" + picks + "\n";
+			text += "\n";
 		}
 		text += "[templates]\n";
 		for (size_t i = 0; i < m_templates.size() && i < 50; i++)
@@ -186,6 +202,14 @@ namespace AvirA
 			text += "account=" + m_accounts[i].m_id + "|" + Escaped(m_accounts[i].m_name) + "|" + m_accounts[i].m_token + "\n";
 		text += "[auto]\n";
 		text += "auto_interval=" + FormatI32(m_auto.Interval()) + "\n";
+		text += "reply_as=";
+		for (size_t i = 0; i < m_auto_accounts.size(); i++)
+		{
+			if (i)
+				text += ",";
+			text += m_auto_accounts[i];
+		}
+		text += "\n";
 		{
 			std::string watch;
 			auto channels = m_auto.WatchedChannels();
@@ -201,7 +225,12 @@ namespace AvirA
 		for (size_t i = 0; i < targets.size(); i++)
 		{
 			S_AutoTarget* item = targets[i];
-			text += "target=" + item->m_id + "|" + (item->m_on ? "1" : "0") + "|" + (item->m_reply_on ? "1" : "0") + "|" + (item->m_react_on ? "1" : "0") + "|" + FormatI32(item->m_delete_after) + "|" + FormatI32(item->m_delete_scope) + "\n";
+			text += "target=" + item->m_id + "|" + (item->m_on ? "1" : "0") + "|" + (item->m_reply_on ? "1" : "0") + "|" + (item->m_react_on ? "1" : "0") + "|" + FormatI32(item->m_delete_after) + "|" + FormatI32(item->m_delete_scope) + "|" + FormatI32(item->m_mode) + "\n";
+			if (!item->m_llm_key.empty() || !item->m_context.empty())
+			{
+				text += "llm_" + item->m_id + "=" + Escaped(item->m_llm_endpoint) + "\x1F" + Escaped(item->m_llm_model) + "\x1F" + Escaped(item->m_llm_key) + "\n";
+				text += "ctx_" + item->m_id + "=" + Escaped(item->m_context) + "\n";
+			}
 			std::string replies;
 			for (size_t k = 0; k < item->m_replies.size(); k++)
 			{
@@ -276,7 +305,6 @@ namespace AvirA
 		std::fclose(file);
 		size_t at = 0;
 		std::vector<std::string> watched;
-		std::vector<std::string> favorites;
 		std::vector<std::string> auto_watch;
 		std::unordered_map<std::string, std::vector<S_AvatarHist>> avh_pending;
 		std::unordered_map<std::string, std::vector<S_AvatarHist>> bnh_pending;
@@ -312,7 +340,7 @@ namespace AvirA
 					size_t comma = list.find(',', p);
 					std::string id = Trimmed(list.substr(p, comma == std::string::npos ? std::string::npos : comma - p));
 					if (!id.empty())
-						favorites.push_back(id);
+						m_saved_favs.push_back(id);
 					if (comma == std::string::npos)
 						break;
 					p = comma + 1;
@@ -338,7 +366,7 @@ namespace AvirA
 						p = comma + 1;
 					}
 					if (!guild.empty() && !ids.empty())
-						m_pending_picks[guild] = ids;
+						m_saved_picks[guild] = ids;
 				}
 			}
 			if (line.rfind("template=", 0) == 0)
@@ -508,6 +536,21 @@ namespace AvirA
 			}
 			if (line.rfind("auto_interval=", 0) == 0)
 				m_auto.SetInterval(std::atoi(line.substr(14).c_str()));
+			if (line.rfind("reply_as=", 0) == 0)
+			{
+				std::string list = line.substr(9);
+				size_t p = 0;
+				while (p < list.size())
+				{
+					size_t comma = list.find(',', p);
+					std::string id = Trimmed(list.substr(p, comma == std::string::npos ? std::string::npos : comma - p));
+					if (!id.empty())
+						m_auto_accounts.push_back(id);
+					if (comma == std::string::npos)
+						break;
+					p = comma + 1;
+				}
+			}
 			if (line.rfind("watch=", 0) == 0)
 			{
 				std::string list = line.substr(6);
@@ -531,6 +574,7 @@ namespace AvirA
 				size_t p3 = p2 == std::string::npos ? std::string::npos : rest.find('|', p2 + 1);
 				size_t p4 = p3 == std::string::npos ? std::string::npos : rest.find('|', p3 + 1);
 				size_t p5 = p4 == std::string::npos ? std::string::npos : rest.find('|', p4 + 1);
+				size_t p6 = p5 == std::string::npos ? std::string::npos : rest.find('|', p5 + 1);
 				if (p1 != std::string::npos && p2 != std::string::npos && p3 != std::string::npos)
 				{
 					std::string id = rest.substr(0, p1);
@@ -539,6 +583,7 @@ namespace AvirA
 					bool react_on = false;
 					int delafter = 0;
 					int scope = 0;
+					int mode = 0;
 					if (p4 == std::string::npos)
 						react_on = rest.substr(p3 + 1) == "1";
 					else if (p5 == std::string::npos)
@@ -546,16 +591,24 @@ namespace AvirA
 						react_on = rest.substr(p3 + 1, p4 - p3 - 1) == "1";
 						delafter = std::atoi(rest.substr(p4 + 1).c_str());
 					}
-					else
+					else if (p6 == std::string::npos)
 					{
 						react_on = rest.substr(p3 + 1, p4 - p3 - 1) == "1";
 						delafter = std::atoi(rest.substr(p4 + 1, p5 - p4 - 1).c_str());
 						scope = std::atoi(rest.substr(p5 + 1).c_str());
 					}
+					else
+					{
+						react_on = rest.substr(p3 + 1, p4 - p3 - 1) == "1";
+						delafter = std::atoi(rest.substr(p4 + 1, p5 - p4 - 1).c_str());
+						scope = std::atoi(rest.substr(p5 + 1, p6 - p5 - 1).c_str());
+						mode = std::atoi(rest.substr(p6 + 1).c_str());
+					}
 					std::vector<std::string> empty;
 					m_auto.RestoreTarget(id, on, reply_on, react_on, empty, empty);
 					m_auto.SetDeleteAfter(id, delafter);
 					m_auto.SetDeleteScope(id, scope);
+					m_auto.SetMode(id, mode);
 				}
 			}
 			if (line.rfind("replies_", 0) == 0)
@@ -592,6 +645,51 @@ namespace AvirA
 							p = comma + 1;
 						}
 					}
+				}
+			}
+			if (line.rfind("llm_", 0) == 0)
+			{
+				size_t eq = line.find('=');
+				if (eq != std::string::npos)
+				{
+					std::string id = line.substr(4, eq - 4);
+					S_AutoTarget* item = m_auto.Find(id);
+					if (item)
+					{
+						std::vector<std::string> parts = SplitUnit(line.substr(eq + 1));
+						if (parts.size() > 0)
+							item->m_llm_endpoint = parts[0];
+						if (parts.size() > 1)
+							item->m_llm_model = parts[1];
+						if (parts.size() > 2)
+							item->m_llm_key = parts[2];
+					}
+				}
+			}
+			if (line.rfind("ctx_", 0) == 0)
+			{
+				size_t eq = line.find('=');
+				if (eq != std::string::npos)
+				{
+					std::string id = line.substr(4, eq - 4);
+					S_AutoTarget* item = m_auto.Find(id);
+					if (item)
+						item->m_context = Unescaped(line.substr(eq + 1));
+				}
+			}
+			if (line.rfind("reply_as=", 0) == 0)
+			{
+				std::string list = line.substr(9);
+				size_t p = 0;
+				while (p < list.size())
+				{
+					size_t comma = list.find(',', p);
+					std::string id = Trimmed(list.substr(p, comma == std::string::npos ? std::string::npos : comma - p));
+					if (!id.empty())
+						m_auto_accounts.push_back(id);
+					if (comma == std::string::npos)
+						break;
+					p = comma + 1;
 				}
 			}
 			if (line.rfind("keywords_", 0) == 0)
@@ -677,8 +775,7 @@ namespace AvirA
 				break;
 			at = end + 1;
 		}
-		m_pending_favorites = favorites;
-		m_spammer.ApplyFavorites(favorites);
+		m_spammer.ApplyFavorites(m_saved_favs);
 		for (size_t i = 0; i < auto_watch.size(); i++)
 			m_auto.SetWatch(auto_watch[i], true);
 		for (size_t i = 0; i < watched.size(); i++)
@@ -855,9 +952,19 @@ namespace AvirA
 		m_cleaner.SetMe(id);
 	}
 
-	std::vector<std::string> C_Store::PendingFavorites() const
+	std::vector<std::string> C_Store::SavedFavorites() const
 	{
-		return m_pending_favorites;
+		return m_saved_favs;
+	}
+
+	std::vector<std::string> C_Store::AutoAccounts() const
+	{
+		return m_auto_accounts;
+	}
+
+	void C_Store::SetAutoAccounts(const std::vector<std::string>& ids)
+	{
+		m_auto_accounts = ids;
 	}
 
 	std::vector<C_Store::S_TemplateItem> C_Store::Templates() const
@@ -1010,14 +1117,9 @@ namespace AvirA
 		return "";
 	}
 
-	std::unordered_map<std::string, std::vector<std::string>> C_Store::PendingPicks() const
+	std::unordered_map<std::string, std::vector<std::string>> C_Store::SavedPicks() const
 	{
-		return m_pending_picks;
-	}
-
-	void C_Store::ForgetPendingPicks(const std::string& guild)
-	{
-		m_pending_picks.erase(guild);
+		return m_saved_picks;
 	}
 
 	std::string C_Store::PendingCleanGuild() const
