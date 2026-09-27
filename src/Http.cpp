@@ -126,6 +126,34 @@ namespace AvirA
 		return Request("PATCH", m_base + path, json, "application/json", {});
 	}
 
+	S_HttpResult C_Http::PatchJsonFull(const std::string& url, const std::string& json)
+	{
+		return Request("PATCH", url, json, "application/json", {});
+	}
+
+	S_HttpResult C_Http::DeleteFull(const std::string& url)
+	{
+		return Request("DELETE", url, "", "", {});
+	}
+
+	S_HttpResult C_Http::PostMultipartFull(const std::string& url, const std::string& json, const std::vector<S_UploadFile>& files)
+	{
+		std::string boundary = "AvirA" + FormatU64(NowSeconds()) + FormatU64(NowMillis() % 1000000);
+		std::string body = BuildMultipart(json, files, boundary);
+		return Request("POST", url, body, "multipart/form-data; boundary=" + boundary, {});
+	}
+
+	bool C_Http::GetFull(const std::string& url, std::string& body, std::string& mime)
+	{
+		std::string found;
+		S_HttpResult result = Request("GET", url, "", "", {}, &found);
+		if (!result.m_ok)
+			return false;
+		body = result.m_body;
+		mime = found;
+		return true;
+	}
+
 	S_HttpResult C_Http::PostMultipart(const std::string& path, const std::string& json, const std::vector<S_UploadFile>& files)
 	{
 		std::string boundary = "AvirA" + FormatU64(NowSeconds()) + FormatU64(NowMillis() % 1000000);
@@ -133,7 +161,7 @@ namespace AvirA
 		return Request("POST", m_base + path, body, "multipart/form-data; boundary=" + boundary, {});
 	}
 
-	S_HttpResult C_Http::Request(const std::string& method, const std::string& url, const std::string& body, const std::string& content, const std::vector<S_UploadFile>& files)
+	S_HttpResult C_Http::Request(const std::string& method, const std::string& url, const std::string& body, const std::string& content, const std::vector<S_UploadFile>& files, std::string* out_mime)
 	{
 		S_HttpResult out;
 		std::wstring wide(url.begin(), url.end());
@@ -212,6 +240,22 @@ namespace AvirA
 		DWORD status_size = sizeof(status);
 		WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &status, &status_size, nullptr);
 		out.m_status = (int)status;
+		if (out_mime)
+		{
+			wchar_t mime_buf[128] = {};
+			DWORD mime_size = sizeof(mime_buf);
+			if (WinHttpQueryHeaders(request, WINHTTP_QUERY_CONTENT_TYPE, nullptr, mime_buf, &mime_size, nullptr))
+			{
+				std::wstring wide = mime_buf;
+				size_t semi = wide.find(L';');
+				if (semi != std::wstring::npos)
+					wide = wide.substr(0, semi);
+				std::string narrow;
+				for (size_t i = 0; i < wide.size() && wide[i] < 128; i++)
+					narrow.push_back((char)wide[i]);
+				*out_mime = Trimmed(narrow);
+			}
+		}
 		std::string collected;
 		DWORD chunk = 0;
 		do

@@ -4,6 +4,7 @@
 #include "Cleaner.hpp"
 #include "Auto.hpp"
 #include "Typing.hpp"
+#include "Webhooks.hpp"
 
 namespace AvirA
 {
@@ -21,6 +22,9 @@ namespace AvirA
 		C_Cleaner* Cleaner();
 		C_Auto* Auto();
 		C_Typing* Typing();
+		C_Webhooks* Webhooks();
+		std::string LastHook() const;
+		void SetLastHook(const std::string& url);
 
 		std::string Token() const;
 		void SetToken(const std::string& token);
@@ -88,6 +92,8 @@ namespace AvirA
 		C_Cleaner m_cleaner;
 		C_Auto m_auto;
 		C_Typing m_typing;
+		C_Webhooks m_webhooks;
+		std::string m_last_hook;
 		std::string m_token;
 		std::string m_me_name;
 		std::string m_me_id;

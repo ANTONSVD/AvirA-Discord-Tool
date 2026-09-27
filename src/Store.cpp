@@ -168,6 +168,8 @@ namespace AvirA
 			}
 			text += "\n";
 		}
+		text += "[webhook]\n";
+		text += "url=" + m_last_hook + "\n";
 		text += "[accounts]\n";
 		text += "active=" + m_active_account + "\n";
 		for (size_t i = 0; i < m_accounts.size(); i++)
@@ -438,6 +440,8 @@ namespace AvirA
 					p = comma + 1;
 				}
 			}
+			if (line.rfind("url=", 0) == 0)
+				m_last_hook = Trimmed(line.substr(4));
 			if (line.rfind("active=", 0) == 0)
 				m_active_account = Trimmed(line.substr(7));
 			if (line.rfind("account=", 0) == 0)
@@ -674,6 +678,21 @@ namespace AvirA
 	C_Typing* C_Store::Typing()
 	{
 		return &m_typing;
+	}
+
+	C_Webhooks* C_Store::Webhooks()
+	{
+		return &m_webhooks;
+	}
+
+	std::string C_Store::LastHook() const
+	{
+		return m_last_hook;
+	}
+
+	void C_Store::SetLastHook(const std::string& url)
+	{
+		m_last_hook = Trimmed(url);
 	}
 
 	std::string C_Store::Token() const

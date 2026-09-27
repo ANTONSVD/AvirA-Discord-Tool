@@ -32,10 +32,14 @@ namespace AvirA
 		S_HttpResult PostJson(const std::string& path, const std::string& json);
 		S_HttpResult PostJsonFull(const std::string& url, const std::string& json);
 		S_HttpResult PatchJson(const std::string& path, const std::string& json);
+		S_HttpResult PatchJsonFull(const std::string& url, const std::string& json);
+		S_HttpResult DeleteFull(const std::string& url);
 		S_HttpResult PostMultipart(const std::string& path, const std::string& json, const std::vector<S_UploadFile>& files);
+		S_HttpResult PostMultipartFull(const std::string& url, const std::string& json, const std::vector<S_UploadFile>& files);
+		bool GetFull(const std::string& url, std::string& body, std::string& mime);
 
 	private:
-		S_HttpResult Request(const std::string& method, const std::string& url, const std::string& body, const std::string& content, const std::vector<S_UploadFile>& files);
+		S_HttpResult Request(const std::string& method, const std::string& url, const std::string& body, const std::string& content, const std::vector<S_UploadFile>& files, std::string* out_mime = nullptr);
 		std::string BuildMultipart(const std::string& json, const std::vector<S_UploadFile>& files, const std::string& boundary);
 		static std::string MimeFor(const std::string& path);
 

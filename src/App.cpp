@@ -23,6 +23,7 @@ namespace AvirA
 		m_spam_numbers = m_store.SpamNumbers();
 		m_spam_threads = m_store.SpamThreads();
 		m_sender_del_count = m_store.SenderDelCount();
+		strncpy_s(m_wh_url, m_store.LastHook().c_str(), sizeof(m_wh_url) - 1);
 		m_filter.m_limit = m_store.CleanLimit();
 		m_filter.m_only_text = m_store.CleanOnly();
 		strncpy_s(m_clean_text, m_store.CleanText().c_str(), sizeof(m_clean_text) - 1);
@@ -1891,12 +1892,406 @@ namespace AvirA
 		ImGui::EndChild();
 	}
 
+	static bool HookUrlOk(C_Store& store, const char* url, std::string& error)
+	{
+		if (!C_Webhooks::ValidUrl(url))
+		{
+			error = "Bad webhook url";
+			return false;
+		}
+		store.SetLastHook(url);
+		store.Save();
+		return true;
+	}
+
+	void C_App::DrawWebhooks()
+	{
+		C_Webhooks* hooks = m_store.Webhooks();
+		ImGui::BeginChild("wh_url", ImVec2(0, 62), true);
+		ImGui::PushItemWidth(-90);
+		ImGui::InputTextWithHint("##whurl", "https://discord.com/api/webhooks/...", m_wh_url, sizeof(m_wh_url));
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (ImGui::Button("Info", ImVec2(80, 0)))
+		{
+			m_wh_error.clear();
+			m_wh_info_ok = false;
+			if (HookUrlOk(m_store, m_wh_url, m_wh_error))
+			{
+				S_HookInfo info;
+				std::string error;
+				if (hooks->FetchInfo(m_wh_url, info, error))
+				{
+					m_wh_info = info;
+					m_wh_info_ok = true;
+				}
+				else
+					m_wh_error = error;
+			}
+		}
+		if (!m_wh_error.empty())
+			ImGui::TextColored(ImVec4(1, 0.45f, 0.45f, 1), "%s", m_wh_error.c_str());
+		ImGui::EndChild();
+
+		if (m_wh_info_ok)
+		{
+			ImGui::BeginChild("wh_info", ImVec2(0, 150), true);
+			ImGui::Text("%s", m_wh_info.m_name.c_str());
+			ImGui::SameLine();
+			ImGui::TextDisabled("%s  %s", m_wh_info.m_type.c_str(), m_wh_info.m_id.c_str());
+			ImGui::TextDisabled("Created %s", m_wh_info.m_created.c_str());
+			ImGui::TextDisabled("Server %s  Channel %s", m_wh_info.m_guild.c_str(), m_wh_info.m_channel.c_str());
+			ImGui::TextDisabled("Avatar %s", m_wh_info.m_avatar.c_str());
+			if (m_wh_info.m_app != "None")
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("  App %s", m_wh_info.m_app.c_str());
+			}
+			if (m_wh_info.m_source != "None")
+				ImGui::TextDisabled("Source %s", m_wh_info.m_source.c_str());
+			ImGui::EndChild();
+		}
+
+		if (ImGui::CollapsingHeader("Spam", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			const char* modes[] = { "Normal", "TTS", "Silent", "Fake user", "Thread", "Embed" };
+			ImGui::PushItemWidth(150);
+			ImGui::Combo("Mode", &m_wh_mode, modes, 6);
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			ImGui::PushItemWidth(110);
+			ImGui::SliderInt("Count", &m_wh_count, 1, 500);
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			ImGui::PushItemWidth(150);
+			ImGui::SliderInt("Cooldown ms", &m_wh_cool, 0, 5000);
+			ImGui::PopItemWidth();
+			ImGui::InputTextMultiline("##whtext", m_wh_text, sizeof(m_wh_text), ImVec2(-1, 50));
+			if (m_wh_mode == 3)
+			{
+				ImGui::PushItemWidth(200);
+				ImGui::InputTextWithHint("##whfake", "Fake username", m_wh_username, sizeof(m_wh_username));
+				ImGui::PopItemWidth();
+				ImGui::SameLine();
+				ImGui::PushItemWidth(-1);
+				ImGui::InputTextWithHint("##whfavatar", "Fake avatar url, optional", m_wh_avatar, sizeof(m_wh_avatar));
+				ImGui::PopItemWidth();
+			}
+			if (m_wh_mode == 4)
+			{
+				ImGui::PushItemWidth(250);
+				ImGui::InputTextWithHint("##whthread", "Thread or forum post id", m_wh_thread, sizeof(m_wh_thread));
+				ImGui::PopItemWidth();
+			}
+			if (m_wh_spam_busy)
+			{
+				ImGui::BeginDisabled();
+				ImGui::Button("Spamming...", ImVec2(180, 0));
+				ImGui::EndDisabled();
+				ImGui::SameLine();
+				C_Theme::Spinner("##whspin", 18, 2.5f);
+				ImGui::SameLine();
+				ImGui::TextDisabled("%d / %d limits %d", m_wh_done.load(), m_wh_total.load(), m_wh_rl.load());
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Stop"))
+					m_wh_cancel.store(true);
+			}
+			else
+			{
+				if (ImGui::Button("Start spam", ImVec2(180, 0)))
+				{
+					m_wh_spam_error.clear();
+					if (!HookUrlOk(m_store, m_wh_url, m_wh_spam_error))
+					{
+					}
+					else
+					{
+						m_wh_spam_busy = true;
+						m_wh_done = 0;
+						m_wh_total = 0;
+						m_wh_rl = 0;
+						m_wh_cancel.store(false);
+						S_HookSpam opts;
+						opts.m_mode = m_wh_mode;
+						opts.m_text = m_wh_text;
+						opts.m_count = m_wh_count;
+						opts.m_cooldown_ms = m_wh_cool;
+						opts.m_username = m_wh_username;
+						opts.m_avatar_url = m_wh_avatar;
+						opts.m_thread = m_wh_thread;
+						std::string url = m_wh_url;
+						std::thread([this, hooks, url, opts]() {
+							std::string error;
+							hooks->Spam(url, opts, error, &m_wh_done, &m_wh_total, &m_wh_rl, &m_wh_cancel);
+							m_wh_spam_error = error;
+							m_wh_spam_busy = false;
+						}).detach();
+					}
+				}
+			}
+			if (!m_wh_spam_error.empty())
+				ImGui::TextDisabled("%s", m_wh_spam_error.c_str());
+		}
+
+		if (ImGui::CollapsingHeader("File"))
+		{
+			ImGui::PushItemWidth(-90);
+			ImGui::InputTextWithHint("##whfile", "C:\\image.png", m_wh_file, sizeof(m_wh_file));
+			ImGui::PopItemWidth();
+			ImGui::PushItemWidth(-90);
+			ImGui::InputTextWithHint("##whfiletext", "Text with file, optional", m_wh_file_text, sizeof(m_wh_file_text));
+			ImGui::PopItemWidth();
+			if (m_wh_file_busy)
+			{
+				ImGui::BeginDisabled();
+				ImGui::Button("Sending...", ImVec2(180, 0));
+				ImGui::EndDisabled();
+				ImGui::SameLine();
+				C_Theme::Spinner("##whfspin", 16, 2.5f);
+			}
+			else
+			{
+				if (ImGui::Button("Send file", ImVec2(180, 0)))
+				{
+					m_wh_file_error.clear();
+					if (!HookUrlOk(m_store, m_wh_url, m_wh_file_error))
+					{
+					}
+					else
+					{
+						m_wh_file_busy = true;
+						std::string url = m_wh_url;
+						std::string path = Trimmed(m_wh_file);
+						std::string content = m_wh_file_text;
+						std::thread([this, hooks, url, path, content]() {
+							std::string error;
+							if (!hooks->SendHookFile(url, path, content, error))
+								m_wh_file_error = error;
+							else
+								m_wh_file_error = "Sent";
+							m_wh_file_busy = false;
+						}).detach();
+					}
+				}
+			}
+			if (!m_wh_file_error.empty())
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("%s", m_wh_file_error.c_str());
+			}
+		}
+
+		if (ImGui::CollapsingHeader("Messages"))
+		{
+			ImGui::PushItemWidth(220);
+			ImGui::InputTextWithHint("##whmsgid", "Message id", m_wh_msg, sizeof(m_wh_msg));
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			if (ImGui::SmallButton("View"))
+			{
+				m_wh_msg_error.clear();
+				m_wh_view_ok = false;
+				if (HookUrlOk(m_store, m_wh_url, m_wh_msg_error))
+				{
+					S_HookMessage view;
+					std::string error;
+					if (hooks->FetchMessage(m_wh_url, m_wh_msg, view, error))
+					{
+						m_wh_view = view;
+						m_wh_view_ok = true;
+					}
+					else
+						m_wh_msg_error = error;
+				}
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Delete"))
+			{
+				m_wh_msg_error.clear();
+				if (HookUrlOk(m_store, m_wh_url, m_wh_msg_error))
+				{
+					std::string error;
+					if (!hooks->DeleteHookMessage(m_wh_url, m_wh_msg, error))
+						m_wh_msg_error = error;
+					else
+					{
+						m_wh_msg_error = "Deleted";
+						m_wh_view_ok = false;
+					}
+				}
+			}
+			if (m_wh_view_ok)
+			{
+				ImGui::TextDisabled("Author %s", m_wh_view.m_author.c_str());
+				ImGui::TextWrapped("%s", m_wh_view.m_content.c_str());
+				ImGui::TextDisabled("Sent %s", m_wh_view.m_sent.c_str());
+				if (!m_wh_view.m_edited.empty())
+					ImGui::TextDisabled("Edited %s", m_wh_view.m_edited.c_str());
+			}
+			ImGui::PushItemWidth(-90);
+			ImGui::InputTextWithHint("##whedit", "New text", m_wh_edit, sizeof(m_wh_edit));
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			if (ImGui::Button("Edit", ImVec2(80, 0)))
+			{
+				m_wh_msg_error.clear();
+				if (HookUrlOk(m_store, m_wh_url, m_wh_msg_error))
+				{
+					std::string error;
+					if (!hooks->EditHookMessage(m_wh_url, m_wh_msg, m_wh_edit, error))
+						m_wh_msg_error = error;
+					else
+						m_wh_msg_error = "Edited";
+				}
+			}
+			if (!m_wh_msg_error.empty())
+				ImGui::TextDisabled("%s", m_wh_msg_error.c_str());
+		}
+
+		if (ImGui::CollapsingHeader("Embed"))
+		{
+			ImGui::PushItemWidth(250);
+			ImGui::InputTextWithHint("##embtitle", "Title", m_wh_emb_title, sizeof(m_wh_emb_title));
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			ImGui::PushItemWidth(120);
+			ImGui::InputTextWithHint("##embcolor", "Color FF0000", m_wh_emb_color, sizeof(m_wh_emb_color));
+			ImGui::PopItemWidth();
+			ImGui::InputTextMultiline("##embdesc", m_wh_emb_desc, sizeof(m_wh_emb_desc), ImVec2(-1, 50));
+			ImGui::PushItemWidth(-1);
+			ImGui::InputTextWithHint("##embfooter", "Footer, optional", m_wh_emb_footer, sizeof(m_wh_emb_footer));
+			ImGui::PopItemWidth();
+			ImGui::PushItemWidth(-1);
+			ImGui::InputTextWithHint("##embthumb", "Thumbnail url, optional", m_wh_emb_thumb, sizeof(m_wh_emb_thumb));
+			ImGui::PopItemWidth();
+			for (int i = 0; i < 3; i++)
+			{
+				ImGui::PushItemWidth(200);
+				ImGui::InputTextWithHint(("##embfn" + FormatI32(i)).c_str(), "Field name, empty stops", m_wh_emb_fn[i], sizeof(m_wh_emb_fn[i]));
+				ImGui::PopItemWidth();
+				ImGui::SameLine();
+				ImGui::PushItemWidth(-1);
+				ImGui::InputTextWithHint(("##embfv" + FormatI32(i)).c_str(), "Field value", m_wh_emb_fv[i], sizeof(m_wh_emb_fv[i]));
+				ImGui::PopItemWidth();
+			}
+			if (ImGui::Button("Send embed", ImVec2(180, 0)))
+			{
+				m_wh_emb_error.clear();
+				if (HookUrlOk(m_store, m_wh_url, m_wh_emb_error))
+				{
+					S_HookEmbed embed;
+					embed.m_title = m_wh_emb_title;
+					embed.m_desc = m_wh_emb_desc;
+					std::string hex = Trimmed(m_wh_emb_color);
+					if (!hex.empty())
+					{
+						try
+						{
+							embed.m_color = (int)std::stoul(hex, nullptr, 16);
+						}
+						catch (...)
+						{
+							embed.m_color = -1;
+						}
+					}
+					embed.m_footer = m_wh_emb_footer;
+					embed.m_thumb = m_wh_emb_thumb;
+					for (int i = 0; i < 3; i++)
+					{
+						if (Trimmed(m_wh_emb_fn[i]).empty())
+							break;
+						S_HookField field;
+						field.m_name = m_wh_emb_fn[i];
+						field.m_value = m_wh_emb_fv[i];
+						embed.m_fields.push_back(field);
+					}
+					std::string error;
+					if (!hooks->SendEmbed(m_wh_url, embed, error))
+						m_wh_emb_error = error;
+					else
+						m_wh_emb_error = "Sent";
+				}
+			}
+			if (!m_wh_emb_error.empty())
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("%s", m_wh_emb_error.c_str());
+			}
+		}
+
+		if (ImGui::CollapsingHeader("Raw JSON"))
+		{
+			ImGui::InputTextMultiline("##whjson", m_wh_json, sizeof(m_wh_json), ImVec2(-1, 80));
+			if (ImGui::Button("Send JSON", ImVec2(180, 0)))
+			{
+				m_wh_json_error.clear();
+				if (HookUrlOk(m_store, m_wh_url, m_wh_json_error))
+				{
+					std::string error;
+					if (!hooks->SendJson(m_wh_url, m_wh_json, error))
+						m_wh_json_error = error;
+					else
+						m_wh_json_error = "Sent";
+				}
+			}
+			if (!m_wh_json_error.empty())
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("%s", m_wh_json_error.c_str());
+			}
+		}
+
+		if (ImGui::CollapsingHeader("Manage"))
+		{
+			ImGui::PushItemWidth(220);
+			ImGui::InputTextWithHint("##whmodname", "New name, optional", m_wh_mod_name, sizeof(m_wh_mod_name));
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			ImGui::PushItemWidth(-1);
+			ImGui::InputTextWithHint("##whmodavatar", "New avatar image url, optional", m_wh_mod_avatar, sizeof(m_wh_mod_avatar));
+			ImGui::PopItemWidth();
+			if (ImGui::Button("Apply", ImVec2(120, 0)))
+			{
+				m_wh_mod_error.clear();
+				if (HookUrlOk(m_store, m_wh_url, m_wh_mod_error))
+				{
+					std::string error;
+					if (!hooks->ModifyHook(m_wh_url, m_wh_mod_name, m_wh_mod_avatar, error))
+						m_wh_mod_error = error;
+					else
+					{
+						m_wh_mod_error = "Done";
+						memset(m_wh_mod_name, 0, sizeof(m_wh_mod_name));
+						memset(m_wh_mod_avatar, 0, sizeof(m_wh_mod_avatar));
+					}
+				}
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Delete webhook", ImVec2(140, 0)))
+			{
+				m_wh_del_error.clear();
+				if (HookUrlOk(m_store, m_wh_url, m_wh_del_error))
+				{
+					std::string error;
+					if (!hooks->DeleteHook(m_wh_url, error))
+						m_wh_del_error = error;
+					else
+						m_wh_del_error = "Deleted";
+				}
+			}
+			if (!m_wh_mod_error.empty())
+				ImGui::TextDisabled("%s", m_wh_mod_error.c_str());
+			if (!m_wh_del_error.empty())
+				ImGui::TextDisabled("%s", m_wh_del_error.c_str());
+		}
+	}
+
 	void C_App::DrawSettings()
 	{
 		ImGui::BeginChild("settings", ImVec2(0, 330), true);
 		ImGui::Text("About");
 		ImGui::TextDisabled("AvirA Discord Tool. Tokens live in your cfg next to the app, nothing sent anywhere except discord.");
-		ImGui::TextDisabled("Tracker polls profiles, Sender posts, Cleaner deletes, Automatic replies, Typing holds dots.");
+		ImGui::TextDisabled("Tracker polls profiles, Sender posts, Cleaner deletes, Automatic replies, Typing holds dots, Hooks spam webhooks.");
 		ImGui::Separator();
 		ImGui::Text("Accounts (%llu)", (unsigned long long)m_store.Accounts().size());
 		auto accounts = m_store.Accounts();
@@ -1944,12 +2339,12 @@ namespace AvirA
 		ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
 		ImGui::Begin("main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
 		DrawTopBar();
-		const char* tabs[] = { "Tracker", "Sender", "Cleaner", "Automatic", "Typing", "Settings" };
-		for (int i = 0; i < 6; i++)
+		const char* tabs[] = { "Tracker", "Sender", "Cleaner", "Automatic", "Typing", "Hooks", "Settings" };
+		for (int i = 0; i < 7; i++)
 		{
 			if (i)
 				ImGui::SameLine();
-			if (C_Theme::FadedButton(("##tab" + FormatI32(i)).c_str(), tabs[i], m_tab == i, 100))
+			if (C_Theme::FadedButton(("##tab" + FormatI32(i)).c_str(), tabs[i], m_tab == i, 85))
 				m_tab = i;
 		}
 		ImGui::Separator();
@@ -1963,6 +2358,8 @@ namespace AvirA
 			DrawAutomatic();
 		else if (m_tab == 4)
 			DrawTyping();
+		else if (m_tab == 5)
+			DrawWebhooks();
 		else
 			DrawSettings();
 		ImGui::End();
