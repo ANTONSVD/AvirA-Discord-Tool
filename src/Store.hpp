@@ -35,6 +35,8 @@ namespace AvirA
 		std::vector<S_SavedHook> Hooks() const;
 		bool AddHook(const std::string& name, const std::string& url);
 		void RemoveHook(size_t index);
+		void Accent(float& r, float& g, float& b) const;
+		void SetAccent(float r, float g, float b);
 
 		std::string Token() const;
 		void SetToken(const std::string& token);
@@ -105,6 +107,9 @@ namespace AvirA
 		C_Webhooks m_webhooks;
 		std::string m_last_hook;
 		std::vector<S_SavedHook> m_hooks;
+		float m_accent_r = 0.898f;
+		float m_accent_g = 0.283f;
+		float m_accent_b = 0.302f;
 		std::string m_token;
 		std::string m_me_name;
 		std::string m_me_id;

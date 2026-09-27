@@ -168,6 +168,14 @@ namespace AvirA
 			}
 			text += "\n";
 		}
+		text += "[theme]\n";
+		{
+			char buffer[64];
+			snprintf(buffer, sizeof(buffer), "%.3f,%.3f,%.3f", m_accent_r, m_accent_g, m_accent_b);
+			text += "accent=";
+			text += buffer;
+			text += "\n";
+		}
 		text += "[webhook]\n";
 		text += "url=" + m_last_hook + "\n";
 		for (size_t i = 0; i < m_hooks.size() && i < 30; i++)
@@ -442,6 +450,30 @@ namespace AvirA
 					p = comma + 1;
 				}
 			}
+			if (line.rfind("accent=", 0) == 0)
+			{
+				std::string list = line.substr(7);
+				size_t p1 = list.find(',');
+				size_t p2 = p1 == std::string::npos ? std::string::npos : list.find(',', p1 + 1);
+				if (p1 != std::string::npos && p2 != std::string::npos)
+				{
+					try
+					{
+						float r = std::stof(list.substr(0, p1));
+						float g = std::stof(list.substr(p1 + 1, p2 - p1 - 1));
+						float b = std::stof(list.substr(p2 + 1));
+						if (r >= 0 && r <= 1 && g >= 0 && g <= 1 && b >= 0 && b <= 1)
+						{
+							m_accent_r = r;
+							m_accent_g = g;
+							m_accent_b = b;
+						}
+					}
+					catch (...)
+					{
+					}
+				}
+			}
 			if (line.rfind("url=", 0) == 0)
 				m_last_hook = Trimmed(line.substr(4));
 			if (line.rfind("hook=", 0) == 0)
@@ -698,6 +730,32 @@ namespace AvirA
 	C_Webhooks* C_Store::Webhooks()
 	{
 		return &m_webhooks;
+	}
+
+	void C_Store::Accent(float& r, float& g, float& b) const
+	{
+		r = m_accent_r;
+		g = m_accent_g;
+		b = m_accent_b;
+	}
+
+	void C_Store::SetAccent(float r, float g, float b)
+	{
+		if (r < 0)
+			r = 0;
+		if (r > 1)
+			r = 1;
+		if (g < 0)
+			g = 0;
+		if (g > 1)
+			g = 1;
+		if (b < 0)
+			b = 0;
+		if (b > 1)
+			b = 1;
+		m_accent_r = r;
+		m_accent_g = g;
+		m_accent_b = b;
 	}
 
 	std::string C_Store::LastHook() const

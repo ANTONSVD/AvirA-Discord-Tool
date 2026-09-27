@@ -121,6 +121,7 @@ namespace AvirA
 		int m_auto_interval = 12;
 		int m_typing_interval = 8;
 		std::string m_typing_hint;
+		float m_accent[3] = { 0.898f, 0.283f, 0.302f };
 		bool m_spam_mode = false;
 		int m_spam_count = 5;
 		int m_spam_delay = 1500;

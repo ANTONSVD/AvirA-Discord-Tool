@@ -15,6 +15,11 @@ namespace AvirA
 		m_track_interval = m_store.Tracker()->Interval();
 		m_auto_interval = m_store.Auto()->Interval();
 		m_typing_interval = m_store.Typing()->Interval();
+		m_store.Accent(m_accent[0], m_accent[1], m_accent[2]);
+		C_Theme::m_accent_r = m_accent[0];
+		C_Theme::m_accent_g = m_accent[1];
+		C_Theme::m_accent_b = m_accent[2];
+		C_Theme::Apply();
 		m_clean_guild_id = m_store.PendingCleanGuild();
 		m_clean_channel_id = m_store.PendingCleanChannel();
 		m_clean_resolve = true;
@@ -2466,6 +2471,15 @@ namespace AvirA
 		ImGui::Text("About");
 		ImGui::TextDisabled("AvirA Discord Tool. Tokens live in your cfg next to the app, nothing sent anywhere except discord.");
 		ImGui::TextDisabled("Tracker polls profiles, Sender posts, Cleaner deletes, Automatic replies, Typing holds dots, Hooks spam webhooks.");
+		if (ImGui::ColorEdit3("Accent", m_accent))
+		{
+			C_Theme::m_accent_r = m_accent[0];
+			C_Theme::m_accent_g = m_accent[1];
+			C_Theme::m_accent_b = m_accent[2];
+			C_Theme::Apply();
+			m_store.SetAccent(m_accent[0], m_accent[1], m_accent[2]);
+			m_store_dirty = true;
+		}
 		ImGui::Separator();
 		ImGui::Text("Accounts (%llu)", (unsigned long long)m_store.Accounts().size());
 		auto accounts = m_store.Accounts();
