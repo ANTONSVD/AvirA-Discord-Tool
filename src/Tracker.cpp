@@ -414,7 +414,8 @@ namespace AvirA
 			Emit(item, "global", "Display name: " + (prev.m_global.empty() ? "-" : prev.m_global) + " -> " + (next.m_global.empty() ? "-" : next.m_global));
 		if (prev.m_avatar != next.m_avatar)
 		{
-			Emit(item, "avatar", "Avatar changed");
+			std::string text = "Avatar changed\nold: " + (prev.m_avatar.empty() ? "-" : prev.m_avatar) + "\nnew: " + (next.m_avatar.empty() ? "-" : next.m_avatar);
+			Emit(item, "avatar", text);
 			if (!next.m_avatar.empty() && (item.m_avatars.empty() || item.m_avatars.back().m_url != next.m_avatar))
 			{
 				S_AvatarHist shot;
@@ -427,7 +428,8 @@ namespace AvirA
 		}
 		if (prev.m_banner != next.m_banner)
 		{
-			Emit(item, "banner", "Banner changed");
+			std::string text = "Banner changed\nold: " + (prev.m_banner.empty() ? "-" : prev.m_banner) + "\nnew: " + (next.m_banner.empty() ? "-" : next.m_banner);
+			Emit(item, "banner", text);
 			if (!next.m_banner.empty() && (item.m_banners.empty() || item.m_banners.back().m_url != next.m_banner))
 			{
 				S_AvatarHist shot;
