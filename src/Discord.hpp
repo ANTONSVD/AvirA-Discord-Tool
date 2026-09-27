@@ -23,6 +23,7 @@ namespace AvirA
 		std::string m_bio;
 		std::string m_status;
 		std::vector<S_Activity> m_games;
+		std::vector<std::string> m_guilds;
 		u64 m_stamp = 0;
 
 		bool Same(const S_Profile& other) const;

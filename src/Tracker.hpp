@@ -25,9 +25,11 @@ namespace AvirA
 		std::vector<S_TrackLog> m_logs;
 		std::vector<S_AvatarHist> m_avatars;
 		std::vector<S_AvatarHist> m_banners;
+		std::vector<std::string> m_guilds;
 		bool m_watching = true;
 		bool m_fresh = true;
 		u64 m_checked = 0;
+		u64 m_prime_at = 0;
 		std::string m_error;
 	};
 
@@ -52,12 +54,14 @@ namespace AvirA
 		bool Running() const;
 		void PollOnce();
 		void OnPresence(const std::string& id, const std::string& status, const std::vector<S_Activity>& games);
+		void OnChunk(const std::vector<std::string>& members, const std::vector<S_ChunkPresence>& presences);
 		std::string GatewayState() const;
 
 		C_Webhook* Webhook();
 
 	private:
 		bool FetchFull(const std::string& id, S_Profile& out);
+		void ApplyPresence(S_Tracked& item, const std::string& status, const std::vector<S_Activity>& games);
 		void Worker();
 		void CompareAndLog(S_Tracked& item, const S_Profile& next);
 		void Emit(S_Tracked& item, const std::string& kind, const std::string& text);

@@ -8,6 +8,9 @@ namespace AvirA
 		m_gateway.SetPresence([this](const std::string& id, const std::string& status, const std::vector<S_Activity>& games) {
 			OnPresence(id, status, games);
 		});
+		m_gateway.SetChunk([this](const std::vector<std::string>& members, const std::vector<S_ChunkPresence>& presences) {
+			OnChunk(members, presences);
+		});
 	}
 
 	void C_Tracker::SetInterval(int seconds)
@@ -197,6 +200,15 @@ namespace AvirA
 		return m_gateway.State();
 	}
 
+	void C_Tracker::ApplyPresence(S_Tracked& item, const std::string& status, const std::vector<S_Activity>& games)
+	{
+		S_Profile next = item.m_last;
+		next.m_status = status;
+		next.m_games = games;
+		next.m_stamp = NowSeconds();
+		CompareAndLog(item, next);
+	}
+
 	void C_Tracker::OnPresence(const std::string& id, const std::string& status, const std::vector<S_Activity>& games)
 	{
 		if (id.empty() || status.empty())
@@ -205,11 +217,47 @@ namespace AvirA
 		S_Tracked* item = Find(id);
 		if (!item || !item->m_watching)
 			return;
-		S_Profile next = item->m_last;
-		next.m_status = status;
-		next.m_games = games;
-		next.m_stamp = NowSeconds();
-		CompareAndLog(*item, next);
+		ApplyPresence(*item, status, games);
+	}
+
+	void C_Tracker::OnChunk(const std::vector<std::string>& members, const std::vector<S_ChunkPresence>& presences)
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		for (size_t i = 0; i < presences.size(); i++)
+		{
+			S_Tracked* item = Find(presences[i].m_id);
+			if (!item || !item->m_watching)
+				continue;
+			ApplyPresence(*item, presences[i].m_status, presences[i].m_games);
+		}
+		for (size_t i = 0; i < m_items.size(); i++)
+		{
+			S_Tracked& item = m_items[i];
+			if (!item.m_watching || !item.m_last.m_status.empty())
+				continue;
+			bool known = false;
+			for (size_t k = 0; k < members.size(); k++)
+			{
+				if (members[k] == item.m_id)
+				{
+					known = true;
+					break;
+				}
+			}
+			if (!known)
+				continue;
+			bool seen = false;
+			for (size_t k = 0; k < presences.size(); k++)
+			{
+				if (presences[k].m_id == item.m_id)
+				{
+					seen = true;
+					break;
+				}
+			}
+			if (!seen)
+				ApplyPresence(item, "offline", std::vector<S_Activity>());
+		}
 	}
 
 	bool C_Tracker::Running() const
@@ -232,27 +280,41 @@ namespace AvirA
 		}
 		for (size_t i = 0; i < ids.size(); i++)
 		{
-		S_Profile next;
-		if (!FetchFull(ids[i], next))
-		{
-			S_Profile basic;
-			if (!m_client->FetchUser(ids[i], basic))
-				continue;
-			next = basic;
-		}
-		{
-			std::lock_guard<std::mutex> guard(m_lock);
-			S_Tracked* item = Find(ids[i]);
-			if (!item)
-				continue;
-			if (next.m_status.empty())
-				next.m_status = item->m_last.m_status;
-			if (next.m_games.empty())
-				next.m_games = item->m_last.m_games;
-			if (next.m_bio.empty())
-				next.m_bio = item->m_last.m_bio;
-			CompareAndLog(*item, next);
-		}
+			S_Profile next;
+			if (!FetchFull(ids[i], next))
+			{
+				S_Profile basic;
+				if (!m_client->FetchUser(ids[i], basic))
+					continue;
+				next = basic;
+			}
+			std::vector<std::string> prime_guilds;
+			{
+				std::lock_guard<std::mutex> guard(m_lock);
+				S_Tracked* item = Find(ids[i]);
+				if (!item)
+					continue;
+				if (!next.m_guilds.empty())
+					item->m_guilds = next.m_guilds;
+				if (next.m_status.empty())
+					next.m_status = item->m_last.m_status;
+				if (next.m_games.empty())
+					next.m_games = item->m_last.m_games;
+				if (next.m_bio.empty())
+					next.m_bio = item->m_last.m_bio;
+				CompareAndLog(*item, next);
+				if (item->m_last.m_status.empty() && m_gateway.State() == "live" && NowSeconds() - item->m_prime_at > 120 && !item->m_guilds.empty())
+				{
+					item->m_prime_at = NowSeconds();
+					for (size_t k = 0; k < item->m_guilds.size() && k < 6; k++)
+						prime_guilds.push_back(item->m_guilds[k]);
+				}
+			}
+			for (size_t k = 0; k < prime_guilds.size(); k++)
+			{
+				m_gateway.RequestMembers(prime_guilds[k], ids[i]);
+				std::this_thread::sleep_for(std::chrono::milliseconds(400));
+			}
 			std::this_thread::sleep_for(std::chrono::milliseconds(400));
 		}
 	}
@@ -266,7 +328,7 @@ namespace AvirA
 	{
 		if (!m_client)
 			return false;
-		S_HttpResult result = m_client->Http()->Get("/users/" + id + "/profile?with_mutual_guilds=false");
+		S_HttpResult result = m_client->Http()->Get("/users/" + id + "/profile?with_mutual_guilds=true");
 		if (!result.m_ok)
 			return false;
 		C_Json root = C_Json::Parse(result.m_body);
@@ -277,6 +339,16 @@ namespace AvirA
 		out = C_DiscordClient::ProfileFromJson(node);
 		if (out.m_id.empty())
 			out.m_id = id;
+		const C_Json* mutual = root.Find("mutual_guilds");
+		if (mutual && mutual->m_type == E_JsonType::List)
+		{
+			for (size_t i = 0; i < mutual->m_list.size() && out.m_guilds.size() < 20; i++)
+			{
+				std::string guild = mutual->m_list[i].GetText("id");
+				if (!guild.empty())
+					out.m_guilds.push_back(guild);
+			}
+		}
 		std::string presence;
 		const C_Json* presence_node = root.Find("presence");
 		if (!presence_node)

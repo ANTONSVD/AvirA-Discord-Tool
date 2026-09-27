@@ -65,6 +65,25 @@ namespace AvirA
 		m_presence = callback;
 	}
 
+	void C_Gateway::SetChunk(const ChunkFn& callback)
+	{
+		m_chunk = callback;
+	}
+
+	void C_Gateway::RequestMembers(const std::string& guild, const std::string& user)
+	{
+		if (guild.empty() || user.empty())
+			return;
+		HINTERNET ws = nullptr;
+		{
+			std::lock_guard<std::mutex> guard(m_lock);
+			ws = (HINTERNET)m_ws;
+		}
+		if (!ws)
+			return;
+		WsSend(ws, m_send, "{\"op\":8,\"d\":{\"guild_id\":\"" + guild + "\",\"user_ids\":[\"" + user + "\"],\"limit\":5,\"presences\":true}}");
+	}
+
 	void C_Gateway::Start()
 	{
 		bool expected = false;
@@ -236,6 +255,41 @@ namespace AvirA
 					continue;
 				if (kind == "READY")
 					SetState("live");
+				else if (kind == "GUILD_MEMBERS_CHUNK")
+				{
+					std::vector<std::string> members;
+					std::vector<S_ChunkPresence> presences;
+					const C_Json* list = data->Find("members");
+					if (list && list->m_type == E_JsonType::List)
+					{
+						for (size_t i = 0; i < list->m_list.size(); i++)
+						{
+							const C_Json* user = list->m_list[i].Find("user");
+							std::string id = user ? user->GetText("id") : "";
+							if (!id.empty())
+								members.push_back(id);
+						}
+					}
+					list = data->Find("presences");
+					if (list && list->m_type == E_JsonType::List)
+					{
+						for (size_t i = 0; i < list->m_list.size(); i++)
+						{
+							const C_Json* user = list->m_list[i].Find("user");
+							std::string id = user ? user->GetText("id") : "";
+							std::string status = list->m_list[i].GetText("status");
+							if (id.empty() || status.empty())
+								continue;
+							S_ChunkPresence presence;
+							presence.m_id = id;
+							presence.m_status = status;
+							presence.m_games = C_DiscordClient::ActivitiesFromJson(list->m_list[i]);
+							presences.push_back(presence);
+						}
+					}
+					if (m_chunk && (!members.empty() || !presences.empty()))
+						m_chunk(members, presences);
+				}
 				else if (kind == "GUILD_CREATE")
 				{
 					const C_Json* list = data->Find("presences");
