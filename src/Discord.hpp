@@ -70,6 +70,7 @@ namespace AvirA
 		void SetToken(const std::string& token);
 		void Clear();
 		bool HasToken() const;
+		std::string Token() const;
 		C_Http* Http();
 
 		bool CheckToken(std::string& name, std::string& id);

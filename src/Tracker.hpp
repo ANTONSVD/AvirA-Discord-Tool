@@ -1,6 +1,7 @@
 #pragma once
 #include "Discord.hpp"
 #include "Webhook.hpp"
+#include "Gateway.hpp"
 
 namespace AvirA
 {
@@ -50,6 +51,8 @@ namespace AvirA
 		void Stop();
 		bool Running() const;
 		void PollOnce();
+		void OnPresence(const std::string& id, const std::string& status, const std::vector<S_Activity>& games);
+		std::string GatewayState() const;
 
 		C_Webhook* Webhook();
 
@@ -61,6 +64,7 @@ namespace AvirA
 		void EmitWebhook(const std::string& text);
 
 		C_DiscordClient* m_client = nullptr;
+		C_Gateway m_gateway;
 		C_Webhook m_hook;
 		std::vector<S_Tracked> m_items;
 		std::mutex m_lock;

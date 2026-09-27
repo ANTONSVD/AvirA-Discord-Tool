@@ -36,10 +36,13 @@ namespace AvirA
 		std::string out;
 		for (size_t i = 0; i < m_games.size(); i++)
 		{
+			std::string shown = m_games[i].m_name;
+			if (m_games[i].m_kind == "custom" && !m_games[i].m_state.empty())
+				shown = m_games[i].m_state;
 			if (i)
 				out += " | ";
-			out += m_games[i].m_name;
-			if (!m_games[i].m_details.empty())
+			out += shown;
+			if (m_games[i].m_kind != "custom" && !m_games[i].m_details.empty())
 				out += " (" + m_games[i].m_details + ")";
 		}
 		return out;
@@ -60,6 +63,11 @@ namespace AvirA
 	bool C_DiscordClient::HasToken() const
 	{
 		return !m_token.empty();
+	}
+
+	std::string C_DiscordClient::Token() const
+	{
+		return m_token;
 	}
 
 	C_Http* C_DiscordClient::Http()

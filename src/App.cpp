@@ -843,6 +843,20 @@ namespace AvirA
 			ImGui::SameLine();
 			C_Theme::Spinner("##trackspin", 16, 2.5f);
 		}
+		if (running)
+		{
+			ImGui::SameLine();
+			std::string live = m_store.Tracker()->GatewayState();
+			if (live == "live")
+			{
+				float pulse = C_Theme::Pulse(NowMillis(), 0.6f);
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f + 0.4f * pulse, 0.9f, 0.45f, 1.0f));
+				ImGui::Text("live");
+				ImGui::PopStyleColor();
+			}
+			else
+				ImGui::TextDisabled("feed: %s", live.c_str());
+		}
 		if (!m_track_error.empty())
 			ImGui::TextColored(ImVec4(1, 0.45f, 0.45f, 1), "%s", m_track_error.c_str());
 		ImGui::EndChild();

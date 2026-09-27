@@ -5,6 +5,9 @@ namespace AvirA
 	void C_Tracker::Attach(C_DiscordClient* client)
 	{
 		m_client = client;
+		m_gateway.SetPresence([this](const std::string& id, const std::string& status, const std::vector<S_Activity>& games) {
+			OnPresence(id, status, games);
+		});
 	}
 
 	void C_Tracker::SetInterval(int seconds)
@@ -174,13 +177,39 @@ namespace AvirA
 		if (!m_running.compare_exchange_strong(expected, true))
 			return;
 		m_thread = std::thread(&C_Tracker::Worker, this);
+		if (m_client && m_client->HasToken())
+		{
+			m_gateway.SetToken(m_client->Token());
+			m_gateway.Start();
+		}
 	}
 
 	void C_Tracker::Stop()
 	{
+		m_gateway.Stop();
 		m_running = false;
 		if (m_thread.joinable())
 			m_thread.join();
+	}
+
+	std::string C_Tracker::GatewayState() const
+	{
+		return m_gateway.State();
+	}
+
+	void C_Tracker::OnPresence(const std::string& id, const std::string& status, const std::vector<S_Activity>& games)
+	{
+		if (id.empty() || status.empty())
+			return;
+		std::lock_guard<std::mutex> guard(m_lock);
+		S_Tracked* item = Find(id);
+		if (!item || !item->m_watching)
+			return;
+		S_Profile next = item->m_last;
+		next.m_status = status;
+		next.m_games = games;
+		next.m_stamp = NowSeconds();
+		CompareAndLog(*item, next);
 	}
 
 	bool C_Tracker::Running() const
@@ -203,29 +232,27 @@ namespace AvirA
 		}
 		for (size_t i = 0; i < ids.size(); i++)
 		{
-			S_Profile next;
-			if (!FetchFull(ids[i], next))
-			{
-				S_Profile basic;
-				if (!m_client->FetchUser(ids[i], basic))
-					continue;
-				next = basic;
-				std::lock_guard<std::mutex> guard(m_lock);
-				S_Tracked* item = Find(ids[i]);
-				if (item && !item->m_last.m_games.empty())
-				{
-					next.m_games = item->m_last.m_games;
-					next.m_status = item->m_last.m_status;
-				}
-				if (item && next.m_bio.empty())
-					next.m_bio = item->m_last.m_bio;
-			}
-			{
-				std::lock_guard<std::mutex> guard(m_lock);
-				S_Tracked* item = Find(ids[i]);
-				if (item)
-					CompareAndLog(*item, next);
-			}
+		S_Profile next;
+		if (!FetchFull(ids[i], next))
+		{
+			S_Profile basic;
+			if (!m_client->FetchUser(ids[i], basic))
+				continue;
+			next = basic;
+		}
+		{
+			std::lock_guard<std::mutex> guard(m_lock);
+			S_Tracked* item = Find(ids[i]);
+			if (!item)
+				continue;
+			if (next.m_status.empty())
+				next.m_status = item->m_last.m_status;
+			if (next.m_games.empty())
+				next.m_games = item->m_last.m_games;
+			if (next.m_bio.empty())
+				next.m_bio = item->m_last.m_bio;
+			CompareAndLog(*item, next);
+		}
 			std::this_thread::sleep_for(std::chrono::milliseconds(400));
 		}
 	}

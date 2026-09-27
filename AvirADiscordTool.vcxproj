@@ -87,6 +87,7 @@
     <ClCompile Include="src\App.cpp" />
     <ClCompile Include="src\Auto.cpp" />
     <ClCompile Include="src\Typing.cpp" />
+    <ClCompile Include="src\Gateway.cpp" />
     <ClCompile Include="src\Webhooks.cpp" />
     <ClCompile Include="src\Cleaner.cpp" />
     <ClCompile Include="src\Discord.cpp" />
@@ -112,6 +113,7 @@
     <ClInclude Include="src\App.hpp" />
     <ClInclude Include="src\Auto.hpp" />
     <ClInclude Include="src\Typing.hpp" />
+    <ClInclude Include="src\Gateway.hpp" />
     <ClInclude Include="src\Webhooks.hpp" />
     <ClInclude Include="src\AvirA.hpp" />
     <ClInclude Include="src\Cleaner.hpp" />
