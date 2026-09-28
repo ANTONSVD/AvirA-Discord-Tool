@@ -3304,20 +3304,20 @@ namespace AvirA
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Leave"))
 			m_voice.SendVoice(Trimmed(m_voice_guild), "", false, false, false);
+		ImGui::TextDisabled("Join and Leave move your account between channels.");
 		if (!m_voice_error.empty())
 			ImGui::TextDisabled("%s", m_voice_error.c_str());
 		ImGui::EndChild();
 
 		ImGui::BeginChild("voice_ghost", ImVec2(0, 130), true);
 		ImGui::Text("Ghost deafen (payload exploit)");
-		ImGui::TextDisabled("Joins clean unmuted, then corrupts mute packets, server keeps you unmuted.");
+		ImGui::TextDisabled("Never joins or moves you. Sit in voice yourself, ghost re-sends corrupted mute packets.");
 		if (m_ghost_on)
 		{
 			if (ImGui::Button("Stop ghost", ImVec2(160, 0)))
 			{
 				m_ghost_run = false;
 				m_ghost_on = false;
-				m_voice.SendVoice(Trimmed(m_voice_guild), Trimmed(m_voice_channel), false, false, false);
 			}
 		}
 		else
@@ -3326,16 +3326,14 @@ namespace AvirA
 			{
 				if (!m_store.Logged())
 					m_voice_error = "Login first";
-				else if (Trimmed(m_voice_channel).empty())
-					m_voice_error = "Need voice channel id";
 				else
 				{
 					m_ghost_on = true;
 					m_ghost_run = true;
 					int reassert = m_reassert;
-					std::string guild = Trimmed(m_voice_guild);
-					std::string channel = Trimmed(m_voice_channel);
-					std::thread([this, guild, channel, reassert]() {
+					std::string manual_guild = Trimmed(m_voice_guild);
+					std::string manual_channel = Trimmed(m_voice_channel);
+					std::thread([this, manual_guild, manual_channel, reassert]() {
 						if (!m_voice.Running())
 						{
 							m_voice.SetToken(m_store.Token());
@@ -3348,9 +3346,21 @@ namespace AvirA
 							m_ghost_on = false;
 							return;
 						}
-						m_voice.SendVoice(guild, channel, false, false, false);
-						for (int left = 0; left < 15 && m_ghost_run; left++)
-							std::this_thread::sleep_for(std::chrono::milliseconds(100));
+						std::string guild;
+						std::string channel;
+						if (!m_voice.SelfVoice(guild, channel))
+						{
+							guild = manual_guild;
+							channel = manual_channel;
+						}
+						if (channel.empty())
+						{
+							m_voice_error = "Sit in voice first or type channel id";
+							m_ghost_run = false;
+							m_ghost_on = false;
+							return;
+						}
+						m_voice_error.clear();
 						while (m_ghost_run)
 						{
 							m_voice.SendVoice(guild, channel, true, true, true);
@@ -3372,7 +3382,7 @@ namespace AvirA
 
 		ImGui::BeginChild("voice_sb", ImVec2(0, 0), true);
 		ImGui::Text("Soundboard spam");
-		ImGui::TextDisabled("Join voice first, then play. Needs SPEAK rights.");
+		ImGui::TextDisabled("Sit in voice from your main client, tool only sends REST. Needs SPEAK rights.");
 		ImGui::PushItemWidth(220);
 		ImGui::InputTextWithHint("##sbguild", "Guild id for sounds", m_sb_guild, sizeof(m_sb_guild));
 		ImGui::PopItemWidth();
@@ -3450,7 +3460,6 @@ namespace AvirA
 					std::string channel = Trimmed(m_voice_channel);
 					std::string sound = m_sounds[m_sound_index].m_id;
 					std::string guild = m_sounds[m_sound_index].m_guild;
-					std::string voice_guild = Trimmed(m_voice_guild);
 					int count = m_sb_count;
 					int delay = m_sb_delay;
 					if (channel.empty())
@@ -3463,19 +3472,7 @@ namespace AvirA
 						m_sb_done = 0;
 						m_sb_error.clear();
 						C_DiscordClient* client = m_store.Client();
-						std::thread([this, client, channel, guild, voice_guild, sound, count, delay]() {
-							if (!m_voice.Running())
-							{
-								m_voice.SetToken(m_store.Token());
-								m_voice.Start();
-							}
-							if (m_voice.WaitLive(15000))
-							{
-								m_voice.SendVoice(voice_guild, channel, false, false, false);
-								std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-							}
-							else
-								m_sb_error = "No gateway, playing anyway";
+						std::thread([this, client, channel, guild, sound, count, delay]() {
 							int ok = 0;
 							for (int i = 0; i < count && m_sb_done < count; i++)
 							{

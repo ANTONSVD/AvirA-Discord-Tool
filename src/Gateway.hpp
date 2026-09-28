@@ -25,6 +25,7 @@ namespace AvirA
 		void RequestMembers(const std::string& guild, const std::string& user);
 		bool SendRaw(const std::string& text);
 		bool SendVoice(const std::string& guild, const std::string& channel, bool mute, bool deaf, bool corrupt);
+		bool SelfVoice(std::string& guild, std::string& channel);
 		void Start();
 		void Stop();
 		bool Running() const;
@@ -36,6 +37,9 @@ namespace AvirA
 		void SetState(const std::string& value);
 
 		std::string m_token;
+		std::string m_self;
+		std::string m_self_guild;
+		std::string m_self_channel;
 		PresenceFn m_presence;
 		ChunkFn m_chunk;
 		std::thread m_thread;

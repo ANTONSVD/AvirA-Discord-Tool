@@ -161,6 +161,14 @@ namespace AvirA
 		return m_running;
 	}
 
+	bool C_Gateway::SelfVoice(std::string& guild, std::string& channel)
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		guild = m_self_guild;
+		channel = m_self_channel;
+		return !channel.empty();
+	}
+
 	bool C_Gateway::WaitLive(int millis)
 	{
 		for (int left = 0; left < millis; left += 100)
@@ -313,7 +321,26 @@ namespace AvirA
 				if (kind.empty() || !data)
 					continue;
 				if (kind == "READY")
+				{
 					SetState("live");
+					const C_Json* user = data->Find("user");
+					std::string id = user ? user->GetText("id") : "";
+					if (!id.empty())
+					{
+						std::lock_guard<std::mutex> guard(m_lock);
+						m_self = id;
+					}
+				}
+				else if (kind == "VOICE_STATE_UPDATE")
+				{
+					std::string user = data->GetText("user_id");
+					std::lock_guard<std::mutex> guard(m_lock);
+					if (!user.empty() && user == m_self)
+					{
+						m_self_guild = data->GetText("guild_id");
+						m_self_channel = data->GetText("channel_id");
+					}
+				}
 				else if (kind == "GUILD_MEMBERS_CHUNK")
 				{
 					std::vector<std::string> members;
