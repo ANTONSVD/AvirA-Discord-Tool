@@ -3263,16 +3263,18 @@ namespace AvirA
 
 		ImGui::BeginChild("raid_nicks", ImVec2(0, 0), true);
 		ImGui::Text("Nick rotator (global name)");
-		ImGui::PushItemWidth(220);
-		if (ImGui::InputTextWithHint("##nickguild", "Guild id, empty for global", m_nick_guild, sizeof(m_nick_guild)))
+		ImGui::PushItemWidth(-1);
+		if (ImGui::InputTextWithHint("##nickguild", "Guild ids comma separated, empty for global", m_nick_guild, sizeof(m_nick_guild)))
 		{
 			m_nicks.SetGuild(m_nick_guild);
 			m_store.SetNickGuild(m_nick_guild);
 			m_store_dirty = true;
 		}
 		ImGui::PopItemWidth();
-		ImGui::SameLine();
-		ImGui::TextDisabled("%s", Trimmed(m_nick_guild).empty() ? "global mode" : "server mode, no captcha");
+		{
+			auto guilds = m_nicks.Guilds();
+			ImGui::TextDisabled("%s", guilds.empty() ? "global mode" : ("server mode x" + FormatU64(guilds.size()) + ", no captcha").c_str());
+		}
 		ImGui::PushItemWidth(220);
 		bool submit_nick = ImGui::InputTextWithHint("##nickedit", "Nick, Enter to add", m_nick_edit, sizeof(m_nick_edit), ImGuiInputTextFlags_EnterReturnsTrue);
 		ImGui::PopItemWidth();

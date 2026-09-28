@@ -12,16 +12,28 @@ namespace AvirA
 		m_captcha.SetKey(key);
 	}
 
-	void C_Nicks::SetGuild(const std::string& guild)
+	void C_Nicks::SetGuild(const std::string& text)
 	{
+		std::vector<std::string> out;
+		size_t at = 0;
+		while (at < text.size() && out.size() < 20)
+		{
+			size_t end = text.find_first_of(",; \n\t", at);
+			std::string part = Trimmed(text.substr(at, end == std::string::npos ? std::string::npos : end - at));
+			if (!part.empty())
+				out.push_back(part);
+			if (end == std::string::npos)
+				break;
+			at = end + 1;
+		}
 		std::lock_guard<std::mutex> guard(m_lock);
-		m_guild = Trimmed(guild);
+		m_guilds = out;
 	}
 
-	std::string C_Nicks::Guild() const
+	std::vector<std::string> C_Nicks::Guilds() const
 	{
 		std::lock_guard<std::mutex> guard(m_lock);
-		return m_guild;
+		return m_guilds;
 	}
 
 	int C_Nicks::CaptchaSolves() const
@@ -147,11 +159,33 @@ namespace AvirA
 		return out < 10 ? 10 : out;
 	}
 
-	bool C_Nicks::ApplyName(const std::string& guild, const std::string& name, std::string& error, bool& cool)
+	bool C_Nicks::ApplyName(const std::vector<std::string>& guilds, const std::string& name, std::string& error, bool& cool)
 	{
 		cool = false;
-		if (!guild.empty())
-			return m_client->PatchGuildNick(guild, name, error);
+		if (!guilds.empty())
+		{
+			int ok = 0;
+			for (size_t i = 0; i < guilds.size(); i++)
+			{
+				std::string item_error;
+				if (m_client->PatchGuildNick(guilds[i], name, item_error))
+					ok++;
+				else
+				{
+					error = item_error;
+					std::string low = item_error;
+					for (size_t k = 0; k < low.size(); k++)
+					{
+						if (low[k] >= 'A' && low[k] <= 'Z')
+							low[k] = (char)(low[k] + 32);
+					}
+					if (low.find("captcha") != std::string::npos)
+						cool = true;
+				}
+				std::this_thread::sleep_for(std::chrono::milliseconds(600));
+			}
+			return ok == (int)guilds.size();
+		}
 		if (m_client->PatchMe(name, error))
 			return true;
 		if (error != "captcha-required" || !m_captcha.HasKey())
@@ -189,20 +223,20 @@ namespace AvirA
 		while (m_running)
 		{
 			std::string name;
-			std::string guild;
+			std::vector<std::string> guilds;
 			{
 				std::lock_guard<std::mutex> guard(m_lock);
 				if (m_names.empty())
 					break;
 				name = m_names[index % m_names.size()];
-				guild = m_guild;
+				guilds = m_guilds;
 			}
 			std::string error;
 			bool cool = false;
-			if (ApplyName(guild, name, error, cool))
+			if (ApplyName(guilds, name, error, cool))
 			{
 				std::lock_guard<std::mutex> guard(m_lock);
-				m_status = guild.empty() ? "set: " + name : "set @" + guild + ": " + name;
+				m_status = guilds.empty() ? "set: " + name : "set @" + FormatU64(guilds.size()) + ": " + name;
 			}
 			else if (error == "captcha-required")
 			{
@@ -226,18 +260,34 @@ namespace AvirA
 				std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}
 		std::string orig;
-		std::string guild;
+		std::vector<std::string> guilds;
 		{
 			std::lock_guard<std::mutex> guard(m_lock);
 			if (m_have_orig)
 				orig = m_orig;
-			guild = m_guild;
+			guilds = m_guilds;
 			m_have_orig = false;
 		}
 		if (!orig.empty())
 		{
 			std::string error;
-			bool ok = guild.empty() ? m_client->PatchMe(orig, error) : m_client->PatchGuildNick(guild, orig, error);
+			bool ok = false;
+			if (guilds.empty())
+				ok = m_client->PatchMe(orig, error);
+			else
+			{
+				ok = true;
+				for (size_t i = 0; i < guilds.size(); i++)
+				{
+					std::string item_error;
+					if (!m_client->PatchGuildNick(guilds[i], orig, item_error))
+					{
+						ok = false;
+						error = item_error;
+					}
+					std::this_thread::sleep_for(std::chrono::milliseconds(600));
+				}
+			}
 			if (ok)
 			{
 				std::lock_guard<std::mutex> guard(m_lock);

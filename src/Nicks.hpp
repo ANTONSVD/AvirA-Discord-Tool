@@ -9,8 +9,8 @@ namespace AvirA
 	public:
 		void Attach(C_DiscordClient* client);
 		void SetCaptchaKey(const std::string& key);
-		void SetGuild(const std::string& guild);
-		std::string Guild() const;
+		void SetGuild(const std::string& text);
+		std::vector<std::string> Guilds() const;
 		int CaptchaSolves() const;
 		bool Add(const std::string& name);
 		void Remove(size_t index);
@@ -25,10 +25,10 @@ namespace AvirA
 		std::string Status() const;
 	private:
 		void Worker();
-		bool ApplyName(const std::string& guild, const std::string& name, std::string& error, bool& cool);
+		bool ApplyName(const std::vector<std::string>& guilds, const std::string& name, std::string& error, bool& cool);
 		C_DiscordClient* m_client = nullptr;
 		C_Captcha m_captcha;
-		std::string m_guild;
+		std::vector<std::string> m_guilds;
 		std::string m_orig;
 		bool m_have_orig = false;
 		std::vector<std::string> m_names;
