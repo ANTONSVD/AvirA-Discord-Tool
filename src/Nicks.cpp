@@ -103,6 +103,15 @@ namespace AvirA
 				return false;
 			}
 			m_status = "started";
+			m_have_orig = false;
+			m_orig.clear();
+		}
+		S_TokenInfo me;
+		if (m_client->FetchTokenInfo(me) && !me.m_global.empty())
+		{
+			std::lock_guard<std::mutex> guard(m_lock);
+			m_orig = me.m_global;
+			m_have_orig = true;
 		}
 		m_thread = std::thread(&C_Nicks::Worker, this);
 		return true;
@@ -215,6 +224,27 @@ namespace AvirA
 			int total = wait * 10;
 			for (int left = 0; left < total && m_running; left++)
 				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		}
+		std::string orig;
+		{
+			std::lock_guard<std::mutex> guard(m_lock);
+			if (m_have_orig)
+				orig = m_orig;
+			m_have_orig = false;
+		}
+		if (!orig.empty())
+		{
+			std::string error;
+			if (m_client->PatchMe(orig, error))
+			{
+				std::lock_guard<std::mutex> guard(m_lock);
+				m_status = "restored: " + orig;
+			}
+			else
+			{
+				std::lock_guard<std::mutex> guard(m_lock);
+				m_status = "restore fail: " + error;
+			}
 		}
 		m_running = false;
 	}

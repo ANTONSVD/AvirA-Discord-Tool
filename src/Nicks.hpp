@@ -29,6 +29,8 @@ namespace AvirA
 		C_DiscordClient* m_client = nullptr;
 		C_Captcha m_captcha;
 		std::string m_guild;
+		std::string m_orig;
+		bool m_have_orig = false;
 		std::vector<std::string> m_names;
 		std::atomic<int> m_seconds = 1800;
 		std::atomic<bool> m_running = false;
