@@ -226,16 +226,19 @@ namespace AvirA
 				std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}
 		std::string orig;
+		std::string guild;
 		{
 			std::lock_guard<std::mutex> guard(m_lock);
 			if (m_have_orig)
 				orig = m_orig;
+			guild = m_guild;
 			m_have_orig = false;
 		}
 		if (!orig.empty())
 		{
 			std::string error;
-			if (m_client->PatchMe(orig, error))
+			bool ok = guild.empty() ? m_client->PatchMe(orig, error) : m_client->PatchGuildNick(guild, orig, error);
+			if (ok)
 			{
 				std::lock_guard<std::mutex> guard(m_lock);
 				m_status = "restored: " + orig;
