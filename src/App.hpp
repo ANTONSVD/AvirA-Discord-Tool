@@ -212,7 +212,7 @@ namespace AvirA
 		std::atomic<int> m_gdm_done = 0;
 		C_Nicks m_nicks;
 		char m_nick_edit[64] = {};
-		int m_nick_minutes = 30;
+		int m_nick_seconds = 1800;
 		bool m_nicks_loaded = false;
 
 		C_Gateway m_voice;

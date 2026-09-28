@@ -49,18 +49,18 @@ namespace AvirA
 		return m_names;
 	}
 
-	void C_Nicks::SetMinutes(int minutes)
+	void C_Nicks::SetSeconds(int seconds)
 	{
-		if (minutes < 1)
-			minutes = 1;
-		if (minutes > 1440)
-			minutes = 1440;
-		m_minutes = minutes;
+		if (seconds < 10)
+			seconds = 10;
+		if (seconds > 43200)
+			seconds = 43200;
+		m_seconds = seconds;
 	}
 
-	int C_Nicks::Minutes() const
+	int C_Nicks::Seconds() const
 	{
-		return m_minutes;
+		return m_seconds;
 	}
 
 	bool C_Nicks::Start()
@@ -128,7 +128,7 @@ namespace AvirA
 				m_status = "fail: " + error;
 			}
 			index++;
-			int total = m_minutes * 60 * 10;
+			int total = m_seconds * 10;
 			for (int left = 0; left < total && m_running; left++)
 				std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}

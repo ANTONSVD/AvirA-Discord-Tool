@@ -210,7 +210,7 @@ namespace AvirA
 			text += m_auto_accounts[i];
 		}
 		text += "\n";
-		text += "nickmin=" + FormatI32(m_nick_minutes) + "\n";
+		text += "nicksec=" + FormatI32(m_nick_seconds) + "\n";
 		{
 			std::string names;
 			for (size_t k = 0; k < m_nick_names.size(); k++)
@@ -676,11 +676,17 @@ namespace AvirA
 					p = comma + 1;
 				}
 			}
+			if (line.rfind("nicksec=", 0) == 0)
+			{
+				int seconds = std::atoi(line.substr(8).c_str());
+				if (seconds >= 10 && seconds <= 43200)
+					m_nick_seconds = seconds;
+			}
 			if (line.rfind("nickmin=", 0) == 0)
 			{
 				int minutes = std::atoi(line.substr(8).c_str());
 				if (minutes >= 1 && minutes <= 1440)
-					m_nick_minutes = minutes;
+					m_nick_seconds = minutes * 60;
 			}
 			if (line.rfind("nicknames=", 0) == 0)
 			{
@@ -1016,15 +1022,15 @@ namespace AvirA
 		m_nick_names = names;
 	}
 
-	int C_Store::NickMinutes() const
+	int C_Store::NickSeconds() const
 	{
-		return m_nick_minutes;
+		return m_nick_seconds;
 	}
 
-	void C_Store::SetNickMinutes(int minutes)
+	void C_Store::SetNickSeconds(int seconds)
 	{
-		if (minutes >= 1 && minutes <= 1440)
-			m_nick_minutes = minutes;
+		if (seconds >= 10 && seconds <= 43200)
+			m_nick_seconds = seconds;
 	}
 
 	bool C_Store::SpamOn() const

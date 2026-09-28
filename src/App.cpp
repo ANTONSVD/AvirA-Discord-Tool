@@ -61,8 +61,8 @@ namespace AvirA
 		strncpy_s(m_hook_edit, hook.c_str(), sizeof(m_hook_edit) - 1);
 		m_nicks.Attach(m_store.Client());
 		m_nicks.ApplyNames(m_store.NickNames());
-		m_nicks.SetMinutes(m_store.NickMinutes());
-		m_nick_minutes = m_store.NickMinutes();
+		m_nicks.SetSeconds(m_store.NickSeconds());
+		m_nick_seconds = m_store.NickSeconds();
 		m_nicks_loaded = true;
 		m_filter.m_limit = 200;
 		m_ready = true;
@@ -3214,10 +3214,10 @@ namespace AvirA
 			}
 		}
 		ImGui::PushItemWidth(120);
-		if (ImGui::SliderInt("Minutes", &m_nick_minutes, 1, 720))
+		if (ImGui::SliderInt("Seconds", &m_nick_seconds, 10, 3600))
 		{
-			m_nicks.SetMinutes(m_nick_minutes);
-			m_store.SetNickMinutes(m_nick_minutes);
+			m_nicks.SetSeconds(m_nick_seconds);
+			m_store.SetNickSeconds(m_nick_seconds);
 			m_store_dirty = true;
 		}
 		ImGui::PopItemWidth();
