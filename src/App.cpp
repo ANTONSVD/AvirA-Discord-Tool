@@ -3211,6 +3211,7 @@ namespace AvirA
 				break;
 			}
 		}
+		ImGui::TextDisabled("Under ~30 min risks captcha, tool cools 60m on captcha.");
 		ImGui::PushItemWidth(120);
 		if (ImGui::SliderInt("Seconds", &m_nick_seconds, 10, 3600))
 		{

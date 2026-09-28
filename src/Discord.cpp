@@ -1049,7 +1049,16 @@ namespace AvirA
 		S_HttpResult result = m_http.PatchJson("/users/@me", body.Dump());
 		if (!result.m_ok)
 		{
-			error = ShortError(result);
+			std::string low = result.m_body;
+			for (size_t i = 0; i < low.size(); i++)
+			{
+				if (low[i] >= 'A' && low[i] <= 'Z')
+					low[i] = (char)(low[i] + 32);
+			}
+			if (low.find("captcha") != std::string::npos)
+				error = "captcha-required";
+			else
+				error = ShortError(result);
 			return false;
 		}
 		return true;

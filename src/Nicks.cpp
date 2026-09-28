@@ -104,8 +104,21 @@ namespace AvirA
 		return m_status;
 	}
 
+	static int Jittered(int seconds)
+	{
+		if (seconds < 10)
+			seconds = 10;
+		int spread = seconds / 4;
+		if (spread < 2)
+			spread = 2;
+		int delta = (rand() % (spread * 2 + 1)) - spread;
+		int out = seconds + delta;
+		return out < 10 ? 10 : out;
+	}
+
 	void C_Nicks::Worker()
 	{
+		srand((unsigned int)(NowMillis() & 0xFFFFFFFF));
 		size_t index = 0;
 		while (m_running)
 		{
@@ -122,13 +135,19 @@ namespace AvirA
 				std::lock_guard<std::mutex> guard(m_lock);
 				m_status = "set: " + name;
 			}
+			else if (error == "captcha-required")
+			{
+				std::lock_guard<std::mutex> guard(m_lock);
+				m_status = "captcha, cooling 60m";
+			}
 			else
 			{
 				std::lock_guard<std::mutex> guard(m_lock);
 				m_status = "fail: " + error;
 			}
 			index++;
-			int total = m_seconds * 10;
+			int wait = error == "captcha-required" ? 3600 : Jittered(m_seconds);
+			int total = wait * 10;
 			for (int left = 0; left < total && m_running; left++)
 				std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}

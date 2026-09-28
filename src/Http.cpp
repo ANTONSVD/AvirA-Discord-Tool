@@ -215,7 +215,7 @@ namespace AvirA
 			out.m_error = "No request";
 			return out;
 		}
-		std::wstring headers = L"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AvirA-Discord-Tool/1.0\r\n";
+		std::wstring headers = L"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36\r\n";
 		if (!m_token.empty())
 		{
 			std::string auth = "Authorization: " + m_token + "\r\n";
