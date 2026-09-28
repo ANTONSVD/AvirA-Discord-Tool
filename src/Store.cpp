@@ -213,6 +213,8 @@ namespace AvirA
 		text += "nicksec=" + FormatI32(m_nick_seconds) + "\n";
 		if (!m_captcha_key.empty())
 			text += "captchakey=" + m_captcha_key + "\n";
+		if (!m_nick_guild.empty())
+			text += "nickguild=" + m_nick_guild + "\n";
 		{
 			std::string names;
 			for (size_t k = 0; k < m_nick_names.size(); k++)
@@ -694,6 +696,10 @@ namespace AvirA
 			{
 				m_captcha_key = Trimmed(line.substr(11));
 			}
+			if (line.rfind("nickguild=", 0) == 0)
+			{
+				m_nick_guild = Trimmed(line.substr(10));
+			}
 			if (line.rfind("nicknames=", 0) == 0)
 			{
 				m_nick_names = SplitUnit(line.substr(10));
@@ -1036,6 +1042,16 @@ namespace AvirA
 	void C_Store::SetCaptchaKey(const std::string& key)
 	{
 		m_captcha_key = Trimmed(key);
+	}
+
+	std::string C_Store::NickGuild() const
+	{
+		return m_nick_guild;
+	}
+
+	void C_Store::SetNickGuild(const std::string& guild)
+	{
+		m_nick_guild = Trimmed(guild);
 	}
 
 	int C_Store::NickSeconds() const

@@ -12,6 +12,18 @@ namespace AvirA
 		m_captcha.SetKey(key);
 	}
 
+	void C_Nicks::SetGuild(const std::string& guild)
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		m_guild = Trimmed(guild);
+	}
+
+	std::string C_Nicks::Guild() const
+	{
+		std::lock_guard<std::mutex> guard(m_lock);
+		return m_guild;
+	}
+
 	int C_Nicks::CaptchaSolves() const
 	{
 		return m_captcha.Solves();
@@ -126,6 +138,41 @@ namespace AvirA
 		return out < 10 ? 10 : out;
 	}
 
+	bool C_Nicks::ApplyName(const std::string& guild, const std::string& name, std::string& error, bool& cool)
+	{
+		cool = false;
+		if (!guild.empty())
+			return m_client->PatchGuildNick(guild, name, error);
+		if (m_client->PatchMe(name, error))
+			return true;
+		if (error != "captcha-required" || !m_captcha.HasKey())
+		{
+			cool = error == "captcha-required";
+			return false;
+		}
+		{
+			std::lock_guard<std::mutex> guard(m_lock);
+			m_status = "solving captcha...";
+		}
+		std::string token;
+		std::string solve_error;
+		std::string rqdata = m_client->Rqdata();
+		std::string rqtoken = m_client->Rqtoken();
+		if (!m_captcha.Solve("4c672d35-0701-42b2-88c3-78380b0db560", "https://discord.com/channels/@me", solve_error, token))
+		{
+			error = "solve fail: " + solve_error;
+			cool = true;
+			return false;
+		}
+		if (m_client->PatchMe(name, error, token, rqdata, rqtoken))
+		{
+			error.clear();
+			return true;
+		}
+		cool = error == "captcha-required";
+		return false;
+	}
+
 	void C_Nicks::Worker()
 	{
 		srand((unsigned int)(NowMillis() & 0xFFFFFFFF));
@@ -133,61 +180,30 @@ namespace AvirA
 		while (m_running)
 		{
 			std::string name;
+			std::string guild;
 			{
 				std::lock_guard<std::mutex> guard(m_lock);
 				if (m_names.empty())
 					break;
 				name = m_names[index % m_names.size()];
+				guild = m_guild;
 			}
 			std::string error;
 			bool cool = false;
-			if (m_client->PatchMe(name, error))
+			if (ApplyName(guild, name, error, cool))
 			{
 				std::lock_guard<std::mutex> guard(m_lock);
-				m_status = "set: " + name;
-			}
-			else if (error == "captcha-required" && m_captcha.HasKey())
-			{
-				{
-					std::lock_guard<std::mutex> guard(m_lock);
-					m_status = "solving captcha...";
-				}
-				std::string token;
-				std::string solve_error;
-				std::string rqdata = m_client->Rqdata();
-				std::string rqtoken = m_client->Rqtoken();
-				if (m_captcha.Solve("4c672d35-0701-42b2-88c3-78380b0db560", "https://discord.com/channels/@me", solve_error, token))
-				{
-					std::string retry_error;
-					if (m_client->PatchMe(name, retry_error, token, rqdata, rqtoken))
-					{
-						std::lock_guard<std::mutex> guard(m_lock);
-						m_status = "set: " + name + " (solved)";
-					}
-					else if (retry_error == "captcha-required")
-					{
-						std::lock_guard<std::mutex> guard(m_lock);
-						m_status = "captcha again, cooling 60m";
-						cool = true;
-					}
-					else
-					{
-						std::lock_guard<std::mutex> guard(m_lock);
-						m_status = "fail: " + retry_error;
-					}
-				}
-				else
-				{
-					std::lock_guard<std::mutex> guard(m_lock);
-					m_status = "solve fail: " + solve_error;
-					cool = true;
-				}
+				m_status = guild.empty() ? "set: " + name : "set @" + guild + ": " + name;
 			}
 			else if (error == "captcha-required")
 			{
 				std::lock_guard<std::mutex> guard(m_lock);
-				m_status = "captcha, cooling 60m (no key)";
-				cool = true;
+				m_status = "captcha, cooling 60m";
+			}
+			else if (error.find("solve fail") == 0)
+			{
+				std::lock_guard<std::mutex> guard(m_lock);
+				m_status = error + ", cooling 60m";
 			}
 			else
 			{

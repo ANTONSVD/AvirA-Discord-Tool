@@ -1037,6 +1037,24 @@ namespace AvirA
 		return true;
 	}
 
+	bool C_DiscordClient::PatchGuildNick(const std::string& guild, const std::string& nick, std::string& error)
+	{
+		if (Trimmed(guild).empty() || Trimmed(nick).empty() || Trimmed(nick).size() > 32)
+		{
+			error = "Bad guild or nick";
+			return false;
+		}
+		C_Json body = C_Json::MakeDict();
+		body.Set("nick", Trimmed(nick));
+		S_HttpResult result = m_http.PatchJson("/guilds/" + Trimmed(guild) + "/members/@me", body.Dump());
+		if (!result.m_ok)
+		{
+			error = ShortError(result);
+			return false;
+		}
+		return true;
+	}
+
 	std::string C_DiscordClient::Rqdata() const
 	{
 		return m_rqdata;

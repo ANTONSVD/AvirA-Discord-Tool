@@ -94,6 +94,8 @@ namespace AvirA
 		void SetNickSeconds(int seconds);
 		std::string CaptchaKey() const;
 		void SetCaptchaKey(const std::string& key);
+		std::string NickGuild() const;
+		void SetNickGuild(const std::string& guild);
 
 		bool SpamOn() const;
 		int SpamCount() const;
@@ -138,6 +140,7 @@ namespace AvirA
 		std::vector<std::string> m_nick_names;
 		int m_nick_seconds = 1800;
 		std::string m_captcha_key;
+		std::string m_nick_guild;
 		bool m_spam_on = false;
 		int m_spam_count = 5;
 		int m_spam_delay = 1500;

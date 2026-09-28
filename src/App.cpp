@@ -61,6 +61,8 @@ namespace AvirA
 		strncpy_s(m_hook_edit, hook.c_str(), sizeof(m_hook_edit) - 1);
 		m_nicks.Attach(m_store.Client());
 		m_nicks.SetCaptchaKey(m_store.CaptchaKey());
+		m_nicks.SetGuild(m_store.NickGuild());
+		strncpy_s(m_nick_guild, m_store.NickGuild().c_str(), sizeof(m_nick_guild) - 1);
 		strncpy_s(m_captcha_key, m_store.CaptchaKey().c_str(), sizeof(m_captcha_key) - 1);
 		m_nicks.ApplyNames(m_store.NickNames());
 		m_nicks.SetSeconds(m_store.NickSeconds());
@@ -3187,6 +3189,16 @@ namespace AvirA
 
 		ImGui::BeginChild("raid_nicks", ImVec2(0, 0), true);
 		ImGui::Text("Nick rotator (global name)");
+		ImGui::PushItemWidth(220);
+		if (ImGui::InputTextWithHint("##nickguild", "Guild id, empty for global", m_nick_guild, sizeof(m_nick_guild)))
+		{
+			m_nicks.SetGuild(m_nick_guild);
+			m_store.SetNickGuild(m_nick_guild);
+			m_store_dirty = true;
+		}
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		ImGui::TextDisabled("%s", Trimmed(m_nick_guild).empty() ? "global mode" : "server mode, no captcha");
 		ImGui::PushItemWidth(220);
 		bool submit_nick = ImGui::InputTextWithHint("##nickedit", "Nick, Enter to add", m_nick_edit, sizeof(m_nick_edit), ImGuiInputTextFlags_EnterReturnsTrue);
 		ImGui::PopItemWidth();

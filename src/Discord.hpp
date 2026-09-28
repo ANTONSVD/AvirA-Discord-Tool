@@ -109,6 +109,7 @@ namespace AvirA
 		bool FetchSounds(const std::string& guild, std::vector<S_Sound>& out);
 		bool PlayBoard(const std::string& channel, const std::string& sound, const std::string& guild, std::string& error);
 		bool PatchMe(const std::string& global, std::string& error, const std::string& captcha = "", const std::string& rqdata = "", const std::string& rqtoken = "");
+		bool PatchGuildNick(const std::string& guild, const std::string& nick, std::string& error);
 		std::string Rqdata() const;
 		std::string Rqtoken() const;
 		bool FetchUser(const std::string& id, S_Profile& out);
