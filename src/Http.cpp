@@ -216,6 +216,8 @@ namespace AvirA
 			return out;
 		}
 		std::wstring headers = L"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36\r\n";
+		headers += L"Accept-Language: en-US,en;q=0.9\r\n";
+		headers += L"Origin: https://discord.com\r\n";
 		if (!m_token.empty())
 		{
 			std::string auth = "Authorization: " + m_token + "\r\n";
@@ -223,9 +225,11 @@ namespace AvirA
 		}
 		if (!m_referer.empty())
 		{
-			std::string referer = "HTTP-Referer: " + m_referer + "\r\n";
+			std::string referer = "Referer: " + m_referer + "\r\n";
 			headers += std::wstring(referer.begin(), referer.end());
 		}
+		else
+			headers += L"Referer: https://discord.com/channels/@me\r\n";
 		if (!m_title.empty())
 		{
 			std::string title = "X-Title: " + m_title + "\r\n";
