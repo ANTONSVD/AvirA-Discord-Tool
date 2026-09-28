@@ -22,7 +22,6 @@ namespace AvirA
 		void DrawWebhooks();
 		void DrawChecker();
 		void DrawRaid();
-		void DrawVoice();
 		void DrawSettings();
 
 		void Login();
@@ -214,23 +213,5 @@ namespace AvirA
 		char m_nick_edit[64] = {};
 		int m_nick_seconds = 1800;
 		bool m_nicks_loaded = false;
-
-		C_Gateway m_voice;
-		bool m_voice_live = false;
-		char m_voice_guild[64] = {};
-		char m_voice_channel[64] = {};
-		bool m_ghost_on = false;
-		int m_reassert = 15;
-		std::atomic<bool> m_ghost_run = false;
-		std::string m_voice_error;
-		char m_sb_guild[64] = {};
-		std::vector<S_Sound> m_sounds;
-		int m_sound_index = 0;
-		bool m_sounds_busy = false;
-		int m_sb_count = 5;
-		int m_sb_delay = 2000;
-		std::string m_sb_error;
-		bool m_sb_busy = false;
-		std::atomic<int> m_sb_done = 0;
 	};
 }
