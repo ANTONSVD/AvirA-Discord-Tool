@@ -172,6 +172,22 @@ namespace AvirA
 		}
 	}
 
+	bool C_App::PickSingleFile(std::string& out)
+	{
+		wchar_t buffer[32768] = {};
+		OPENFILENAMEW dialog = {};
+		dialog.lStructSize = sizeof(dialog);
+		dialog.lpstrFile = buffer;
+		dialog.nMaxFile = 32767;
+		dialog.lpstrFilter = L"Images\0*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp\0All files\0*.*\0";
+		dialog.nFilterIndex = 1;
+		dialog.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+		if (!GetOpenFileNameW(&dialog))
+			return false;
+		out = WideToUtf8(buffer);
+		return !out.empty();
+	}
+
 	std::vector<S_Channel> C_App::FlatChannels()
 	{
 		std::vector<S_Channel> out;
@@ -2487,9 +2503,16 @@ namespace AvirA
 
 		if (ImGui::CollapsingHeader("File"))
 		{
-			ImGui::PushItemWidth(-90);
+			ImGui::PushItemWidth(-170);
 			ImGui::InputTextWithHint("##whfile", "C:\\image.png", m_wh_file, sizeof(m_wh_file));
 			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Browse##whfile"))
+			{
+				std::string path;
+				if (PickSingleFile(path))
+					strncpy_s(m_wh_file, path.c_str(), sizeof(m_wh_file) - 1);
+			}
 			ImGui::PushItemWidth(-90);
 			ImGui::InputTextWithHint("##whfiletext", "Text with file, optional", m_wh_file_text, sizeof(m_wh_file_text));
 			ImGui::PopItemWidth();
@@ -3158,6 +3181,13 @@ namespace AvirA
 		ImGui::InputTextWithHint("##gdmicon", "Icon image path", m_gdm_icon, sizeof(m_gdm_icon));
 		ImGui::PopItemWidth();
 		ImGui::SameLine();
+		if (ImGui::SmallButton("Browse##icon"))
+		{
+			std::string path;
+			if (PickSingleFile(path))
+				strncpy_s(m_gdm_icon, path.c_str(), sizeof(m_gdm_icon) - 1);
+		}
+		ImGui::SameLine();
 		if (ImGui::SmallButton("Icon all") && !m_gdm_made.empty())
 		{
 			std::string uri = FileToDataUri(m_gdm_icon);
@@ -3387,7 +3417,7 @@ namespace AvirA
 		ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
 		ImGui::Begin("main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
 		DrawTopBar();
-		const char* tabs[] = { "Tracker", "Sender", "Cleaner", "Automatic", "Typing", "Hooks", "Checker", "Raid", "Settings" };
+		const char* tabs[] = { "Tracker", "Sender", "Cleaner", "Automatic", "Typing", "WebHooks", "Checker", "Raid", "Settings" };
 		for (int i = 0; i < 9; i++)
 		{
 			if (i)

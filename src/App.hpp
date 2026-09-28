@@ -29,6 +29,7 @@ namespace AvirA
 		void LogoutSession();
 		void AddTracked();
 		void PickFilesViaDialog();
+		bool PickSingleFile(std::string& out);
 		void RefreshSender();
 		void RefreshSenderChannels(size_t index);
 		void RefreshAllSenderChannels();
