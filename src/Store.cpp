@@ -213,8 +213,16 @@ namespace AvirA
 		text += "nicksec=" + FormatI32(m_nick_seconds) + "\n";
 		if (!m_captcha_key.empty())
 			text += "captchakey=" + m_captcha_key + "\n";
-		if (!m_nick_guild.empty())
-			text += "nickguild=" + m_nick_guild + "\n";
+		{
+			std::string guilds;
+			for (size_t k = 0; k < m_nick_guilds.size(); k++)
+			{
+				if (k)
+					guilds.push_back('\x1F');
+				guilds += Escaped(m_nick_guilds[k]);
+			}
+			text += "nickguilds=" + guilds + "\n";
+		}
 		{
 			std::string names;
 			for (size_t k = 0; k < m_nick_names.size(); k++)
@@ -696,9 +704,26 @@ namespace AvirA
 			{
 				m_captcha_key = Trimmed(line.substr(11));
 			}
-			if (line.rfind("nickguild=", 0) == 0)
+			if (line.rfind("nickguilds=", 0) == 0)
 			{
-				m_nick_guild = Trimmed(line.substr(10));
+				m_nick_guilds = SplitUnit(line.substr(11));
+				if (m_nick_guilds.size() > 20)
+					m_nick_guilds.resize(20);
+			}
+			if (line.rfind("nickguild=", 0) == 0 && m_nick_guilds.empty())
+			{
+				std::string legacy = line.substr(10);
+				size_t at = 0;
+				while (at < legacy.size() && m_nick_guilds.size() < 20)
+				{
+					size_t end = legacy.find_first_of(",; \n\t", at);
+					std::string part = Trimmed(legacy.substr(at, end == std::string::npos ? std::string::npos : end - at));
+					if (!part.empty())
+						m_nick_guilds.push_back(part);
+					if (end == std::string::npos)
+						break;
+					at = end + 1;
+				}
 			}
 			if (line.rfind("nicknames=", 0) == 0)
 			{
@@ -1044,14 +1069,19 @@ namespace AvirA
 		m_captcha_key = Trimmed(key);
 	}
 
-	std::string C_Store::NickGuild() const
+	std::vector<std::string> C_Store::NickGuilds() const
 	{
-		return m_nick_guild;
+		return m_nick_guilds;
 	}
 
-	void C_Store::SetNickGuild(const std::string& guild)
+	void C_Store::SetNickGuilds(const std::vector<std::string>& guilds)
 	{
-		m_nick_guild = Trimmed(guild);
+		m_nick_guilds.clear();
+		for (size_t i = 0; i < guilds.size() && i < 20; i++)
+		{
+			if (!Trimmed(guilds[i]).empty())
+				m_nick_guilds.push_back(Trimmed(guilds[i]));
+		}
 	}
 
 	int C_Store::NickSeconds() const

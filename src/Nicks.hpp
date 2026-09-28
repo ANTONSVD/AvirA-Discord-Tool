@@ -9,7 +9,7 @@ namespace AvirA
 	public:
 		void Attach(C_DiscordClient* client);
 		void SetCaptchaKey(const std::string& key);
-		void SetGuild(const std::string& text);
+		void SetGuilds(const std::vector<std::string>& guilds);
 		std::vector<std::string> Guilds() const;
 		int CaptchaSolves() const;
 		bool Add(const std::string& name);

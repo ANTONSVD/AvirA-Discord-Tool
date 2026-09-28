@@ -218,6 +218,6 @@ namespace AvirA
 		char m_captcha_key[128] = {};
 		std::string m_captcha_balance;
 		bool m_captcha_busy = false;
-		char m_nick_guild[64] = {};
+		char m_nick_guild_edit[64] = {};
 	};
 }

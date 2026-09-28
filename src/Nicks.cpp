@@ -12,22 +12,15 @@ namespace AvirA
 		m_captcha.SetKey(key);
 	}
 
-	void C_Nicks::SetGuild(const std::string& text)
+	void C_Nicks::SetGuilds(const std::vector<std::string>& guilds)
 	{
-		std::vector<std::string> out;
-		size_t at = 0;
-		while (at < text.size() && out.size() < 20)
-		{
-			size_t end = text.find_first_of(",; \n\t", at);
-			std::string part = Trimmed(text.substr(at, end == std::string::npos ? std::string::npos : end - at));
-			if (!part.empty())
-				out.push_back(part);
-			if (end == std::string::npos)
-				break;
-			at = end + 1;
-		}
 		std::lock_guard<std::mutex> guard(m_lock);
-		m_guilds = out;
+		m_guilds.clear();
+		for (size_t i = 0; i < guilds.size() && i < 20; i++)
+		{
+			if (!Trimmed(guilds[i]).empty())
+				m_guilds.push_back(Trimmed(guilds[i]));
+		}
 	}
 
 	std::vector<std::string> C_Nicks::Guilds() const

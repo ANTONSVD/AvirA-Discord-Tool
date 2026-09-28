@@ -61,8 +61,7 @@ namespace AvirA
 		strncpy_s(m_hook_edit, hook.c_str(), sizeof(m_hook_edit) - 1);
 		m_nicks.Attach(m_store.Client());
 		m_nicks.SetCaptchaKey(m_store.CaptchaKey());
-		m_nicks.SetGuild(m_store.NickGuild());
-		strncpy_s(m_nick_guild, m_store.NickGuild().c_str(), sizeof(m_nick_guild) - 1);
+		m_nicks.SetGuilds(m_store.NickGuilds());
 		strncpy_s(m_captcha_key, m_store.CaptchaKey().c_str(), sizeof(m_captcha_key) - 1);
 		m_nicks.ApplyNames(m_store.NickNames());
 		m_nicks.SetSeconds(m_store.NickSeconds());
@@ -3263,17 +3262,50 @@ namespace AvirA
 
 		ImGui::BeginChild("raid_nicks", ImVec2(0, 0), true);
 		ImGui::Text("Nick rotator (global name)");
-		ImGui::PushItemWidth(-1);
-		if (ImGui::InputTextWithHint("##nickguild", "Guild ids comma separated, empty for global", m_nick_guild, sizeof(m_nick_guild)))
-		{
-			m_nicks.SetGuild(m_nick_guild);
-			m_store.SetNickGuild(m_nick_guild);
-			m_store_dirty = true;
-		}
+		ImGui::PushItemWidth(220);
+		bool submit_guild = ImGui::InputTextWithHint("##nickguild", "Guild id, Enter to add", m_nick_guild_edit, sizeof(m_nick_guild_edit), ImGuiInputTextFlags_EnterReturnsTrue);
 		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Add server") || submit_guild)
+		{
+			std::string id = Trimmed(m_nick_guild_edit);
+			if (!id.empty())
+			{
+				auto guilds = m_store.NickGuilds();
+				bool known = false;
+				for (size_t i = 0; i < guilds.size(); i++)
+				{
+					if (guilds[i] == id)
+						known = true;
+				}
+				if (!known && guilds.size() < 20)
+				{
+					guilds.push_back(id);
+					m_store.SetNickGuilds(guilds);
+					m_nicks.SetGuilds(guilds);
+					m_store_dirty = true;
+				}
+				memset(m_nick_guild_edit, 0, sizeof(m_nick_guild_edit));
+			}
+		}
 		{
 			auto guilds = m_nicks.Guilds();
 			ImGui::TextDisabled("%s", guilds.empty() ? "global mode" : ("server mode x" + FormatU64(guilds.size()) + ", no captcha").c_str());
+			for (size_t i = 0; i < guilds.size(); i++)
+			{
+				ImGui::TextDisabled("%llu. %s", (unsigned long long)(i + 1), guilds[i].c_str());
+				ImGui::SameLine();
+				if (ImGui::SmallButton(("x##g" + FormatU64(i)).c_str()))
+				{
+					auto next = m_store.NickGuilds();
+					if (i < next.size())
+						next.erase(next.begin() + i);
+					m_store.SetNickGuilds(next);
+					m_nicks.SetGuilds(next);
+					m_store_dirty = true;
+					break;
+				}
+			}
 		}
 		ImGui::PushItemWidth(220);
 		bool submit_nick = ImGui::InputTextWithHint("##nickedit", "Nick, Enter to add", m_nick_edit, sizeof(m_nick_edit), ImGuiInputTextFlags_EnterReturnsTrue);
