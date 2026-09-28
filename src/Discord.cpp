@@ -1037,7 +1037,17 @@ namespace AvirA
 		return true;
 	}
 
-	bool C_DiscordClient::PatchMe(const std::string& global, std::string& error)
+	std::string C_DiscordClient::Rqdata() const
+	{
+		return m_rqdata;
+	}
+
+	std::string C_DiscordClient::Rqtoken() const
+	{
+		return m_rqtoken;
+	}
+
+	bool C_DiscordClient::PatchMe(const std::string& global, std::string& error, const std::string& captcha, const std::string& rqdata, const std::string& rqtoken)
 	{
 		if (Trimmed(global).empty() || Trimmed(global).size() > 32)
 		{
@@ -1046,9 +1056,18 @@ namespace AvirA
 		}
 		C_Json body = C_Json::MakeDict();
 		body.Set("global_name", Trimmed(global));
+		if (!captcha.empty())
+			body.Set("captcha_key", captcha);
+		if (!rqdata.empty())
+			body.Set("captcha_rqdata", rqdata);
+		if (!rqtoken.empty())
+			body.Set("captcha_rqtoken", rqtoken);
 		S_HttpResult result = m_http.PatchJson("/users/@me", body.Dump());
 		if (!result.m_ok)
 		{
+			C_Json root = C_Json::Parse(result.m_body);
+			m_rqdata = root.GetText("captcha_rqdata");
+			m_rqtoken = root.GetText("captcha_rqtoken");
 			std::string low = result.m_body;
 			for (size_t i = 0; i < low.size(); i++)
 			{
@@ -1061,6 +1080,8 @@ namespace AvirA
 				error = ShortError(result);
 			return false;
 		}
+		m_rqdata.clear();
+		m_rqtoken.clear();
 		return true;
 	}
 }

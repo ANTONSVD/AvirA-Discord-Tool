@@ -86,6 +86,7 @@
   <ItemGroup>
     <ClCompile Include="src\App.cpp" />
     <ClCompile Include="src\Auto.cpp" />
+    <ClCompile Include="src\Captcha.cpp" />
     <ClCompile Include="src\Checker.cpp" />
     <ClCompile Include="src\Nicks.cpp" />
     <ClCompile Include="src\Typing.cpp" />
@@ -114,6 +115,7 @@
   <ItemGroup>
     <ClInclude Include="src\App.hpp" />
     <ClInclude Include="src\Auto.hpp" />
+    <ClInclude Include="src\Captcha.hpp" />
     <ClInclude Include="src\Checker.hpp" />
     <ClInclude Include="src\Nicks.hpp" />
     <ClInclude Include="src\Xivivide.hpp" />

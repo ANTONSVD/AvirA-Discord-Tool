@@ -108,7 +108,9 @@ namespace AvirA
 		bool AddGroupRecipient(const std::string& channel, const std::string& user, std::string& error);
 		bool FetchSounds(const std::string& guild, std::vector<S_Sound>& out);
 		bool PlayBoard(const std::string& channel, const std::string& sound, const std::string& guild, std::string& error);
-		bool PatchMe(const std::string& global, std::string& error);
+		bool PatchMe(const std::string& global, std::string& error, const std::string& captcha = "", const std::string& rqdata = "", const std::string& rqtoken = "");
+		std::string Rqdata() const;
+		std::string Rqtoken() const;
 		bool FetchUser(const std::string& id, S_Profile& out);
 		bool FetchGuilds(std::vector<S_Guild>& out);
 		bool FetchChannels(const std::string& guild, std::vector<S_Channel>& out);
@@ -139,5 +141,7 @@ namespace AvirA
 	private:
 		C_Http m_http;
 		std::string m_token;
+		std::string m_rqdata;
+		std::string m_rqtoken;
 	};
 }

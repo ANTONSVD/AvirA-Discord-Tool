@@ -1,5 +1,6 @@
 #pragma once
 #include "Discord.hpp"
+#include "Captcha.hpp"
 
 namespace AvirA
 {
@@ -7,6 +8,8 @@ namespace AvirA
 	{
 	public:
 		void Attach(C_DiscordClient* client);
+		void SetCaptchaKey(const std::string& key);
+		int CaptchaSolves() const;
 		bool Add(const std::string& name);
 		void Remove(size_t index);
 		void Clear();
@@ -21,6 +24,7 @@ namespace AvirA
 	private:
 		void Worker();
 		C_DiscordClient* m_client = nullptr;
+		C_Captcha m_captcha;
 		std::vector<std::string> m_names;
 		std::atomic<int> m_seconds = 1800;
 		std::atomic<bool> m_running = false;

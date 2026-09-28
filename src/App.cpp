@@ -60,6 +60,8 @@ namespace AvirA
 		std::string hook = m_store.Tracker()->Webhook()->Url();
 		strncpy_s(m_hook_edit, hook.c_str(), sizeof(m_hook_edit) - 1);
 		m_nicks.Attach(m_store.Client());
+		m_nicks.SetCaptchaKey(m_store.CaptchaKey());
+		strncpy_s(m_captcha_key, m_store.CaptchaKey().c_str(), sizeof(m_captcha_key) - 1);
 		m_nicks.ApplyNames(m_store.NickNames());
 		m_nicks.SetSeconds(m_store.NickSeconds());
 		m_nick_seconds = m_store.NickSeconds();
@@ -3236,6 +3238,47 @@ namespace AvirA
 		}
 		ImGui::SameLine();
 		ImGui::TextDisabled("%s", m_nicks.Status().c_str());
+		ImGui::PushItemWidth(220);
+		if (ImGui::InputTextWithHint("##capkey", "CapMonster key", m_captcha_key, sizeof(m_captcha_key), ImGuiInputTextFlags_Password))
+		{
+			m_nicks.SetCaptchaKey(m_captcha_key);
+			m_store.SetCaptchaKey(m_captcha_key);
+			m_store_dirty = true;
+		}
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (m_captcha_busy)
+		{
+			ImGui::BeginDisabled();
+			ImGui::SmallButton("...");
+			ImGui::EndDisabled();
+		}
+		else
+		{
+			if (ImGui::SmallButton("Balance"))
+			{
+				m_captcha_busy = true;
+				m_captcha_balance.clear();
+				std::string key = m_captcha_key;
+				std::thread([key, this]() {
+					C_Captcha cap;
+					cap.SetKey(key);
+					double balance = 0;
+					std::string error;
+					if (cap.Balance(error, balance))
+					{
+						char buf[64] = {};
+						sprintf_s(buf, "$%.3f", balance);
+						m_captcha_balance = buf;
+					}
+					else
+						m_captcha_balance = error;
+					m_captcha_busy = false;
+				}).detach();
+			}
+		}
+		ImGui::SameLine();
+		ImGui::TextDisabled("balance %s, solved %d", m_captcha_balance.empty() ? "-" : m_captcha_balance.c_str(), m_nicks.CaptchaSolves());
 		ImGui::EndChild();
 	}
 

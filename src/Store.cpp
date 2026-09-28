@@ -211,6 +211,8 @@ namespace AvirA
 		}
 		text += "\n";
 		text += "nicksec=" + FormatI32(m_nick_seconds) + "\n";
+		if (!m_captcha_key.empty())
+			text += "captchakey=" + m_captcha_key + "\n";
 		{
 			std::string names;
 			for (size_t k = 0; k < m_nick_names.size(); k++)
@@ -688,6 +690,10 @@ namespace AvirA
 				if (minutes >= 1 && minutes <= 1440)
 					m_nick_seconds = minutes * 60;
 			}
+			if (line.rfind("captchakey=", 0) == 0)
+			{
+				m_captcha_key = Trimmed(line.substr(11));
+			}
 			if (line.rfind("nicknames=", 0) == 0)
 			{
 				m_nick_names = SplitUnit(line.substr(10));
@@ -1020,6 +1026,16 @@ namespace AvirA
 	void C_Store::SetNickNames(const std::vector<std::string>& names)
 	{
 		m_nick_names = names;
+	}
+
+	std::string C_Store::CaptchaKey() const
+	{
+		return m_captcha_key;
+	}
+
+	void C_Store::SetCaptchaKey(const std::string& key)
+	{
+		m_captcha_key = Trimmed(key);
 	}
 
 	int C_Store::NickSeconds() const

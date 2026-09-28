@@ -213,5 +213,8 @@ namespace AvirA
 		char m_nick_edit[64] = {};
 		int m_nick_seconds = 1800;
 		bool m_nicks_loaded = false;
+		char m_captcha_key[128] = {};
+		std::string m_captcha_balance;
+		bool m_captcha_busy = false;
 	};
 }

@@ -7,6 +7,16 @@ namespace AvirA
 		m_client = client;
 	}
 
+	void C_Nicks::SetCaptchaKey(const std::string& key)
+	{
+		m_captcha.SetKey(key);
+	}
+
+	int C_Nicks::CaptchaSolves() const
+	{
+		return m_captcha.Solves();
+	}
+
 	bool C_Nicks::Add(const std::string& name)
 	{
 		std::string clean = Trimmed(name);
@@ -130,15 +140,54 @@ namespace AvirA
 				name = m_names[index % m_names.size()];
 			}
 			std::string error;
+			bool cool = false;
 			if (m_client->PatchMe(name, error))
 			{
 				std::lock_guard<std::mutex> guard(m_lock);
 				m_status = "set: " + name;
 			}
+			else if (error == "captcha-required" && m_captcha.HasKey())
+			{
+				{
+					std::lock_guard<std::mutex> guard(m_lock);
+					m_status = "solving captcha...";
+				}
+				std::string token;
+				std::string solve_error;
+				std::string rqdata = m_client->Rqdata();
+				std::string rqtoken = m_client->Rqtoken();
+				if (m_captcha.Solve("4c672d35-0701-42b2-88c3-78380b0db560", "https://discord.com/channels/@me", solve_error, token))
+				{
+					std::string retry_error;
+					if (m_client->PatchMe(name, retry_error, token, rqdata, rqtoken))
+					{
+						std::lock_guard<std::mutex> guard(m_lock);
+						m_status = "set: " + name + " (solved)";
+					}
+					else if (retry_error == "captcha-required")
+					{
+						std::lock_guard<std::mutex> guard(m_lock);
+						m_status = "captcha again, cooling 60m";
+						cool = true;
+					}
+					else
+					{
+						std::lock_guard<std::mutex> guard(m_lock);
+						m_status = "fail: " + retry_error;
+					}
+				}
+				else
+				{
+					std::lock_guard<std::mutex> guard(m_lock);
+					m_status = "solve fail: " + solve_error;
+					cool = true;
+				}
+			}
 			else if (error == "captcha-required")
 			{
 				std::lock_guard<std::mutex> guard(m_lock);
-				m_status = "captcha, cooling 60m";
+				m_status = "captcha, cooling 60m (no key)";
+				cool = true;
 			}
 			else
 			{
@@ -146,7 +195,7 @@ namespace AvirA
 				m_status = "fail: " + error;
 			}
 			index++;
-			int wait = error == "captcha-required" ? 3600 : Jittered(m_seconds);
+			int wait = cool ? 3600 : Jittered(m_seconds);
 			int total = wait * 10;
 			for (int left = 0; left < total && m_running; left++)
 				std::this_thread::sleep_for(std::chrono::milliseconds(100));
