@@ -84,6 +84,7 @@ namespace AvirA
 	{
 		std::string m_id;
 		std::string m_name;
+		std::string m_guild;
 	};
 
 	class C_DiscordClient

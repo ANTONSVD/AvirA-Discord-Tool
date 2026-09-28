@@ -995,6 +995,7 @@ namespace AvirA
 					if (sound.m_id.empty())
 						sound.m_id = list->m_list[i].GetText("id");
 					sound.m_name = list->m_list[i].GetText("name");
+					sound.m_guild = guild;
 					if (!sound.m_id.empty())
 						out.push_back(sound);
 				}

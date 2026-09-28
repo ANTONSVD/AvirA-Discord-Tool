@@ -3439,8 +3439,8 @@ namespace AvirA
 				if (ImGui::Button("Spam sound", ImVec2(160, 0)))
 				{
 					std::string channel = Trimmed(m_voice_channel);
-					std::string guild = Trimmed(m_sb_guild);
 					std::string sound = m_sounds[m_sound_index].m_id;
+					std::string guild = m_sounds[m_sound_index].m_guild;
 					int count = m_sb_count;
 					int delay = m_sb_delay;
 					if (channel.empty())
