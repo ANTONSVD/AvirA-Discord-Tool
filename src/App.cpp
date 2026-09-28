@@ -2398,6 +2398,12 @@ namespace AvirA
 			ImGui::Text("%s", m_wh_info.m_name.c_str());
 			ImGui::SameLine();
 			ImGui::TextDisabled("%s  %s", m_wh_info.m_type.c_str(), m_wh_info.m_id.c_str());
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Copy all"))
+			{
+				std::string all = "Name: " + m_wh_info.m_name + "\nType: " + m_wh_info.m_type + "\nId: " + m_wh_info.m_id + "\nCreated: " + m_wh_info.m_created + "\nServer: " + m_wh_info.m_guild + "\nChannel: " + m_wh_info.m_channel + "\nAvatar: " + m_wh_info.m_avatar + "\nApp: " + m_wh_info.m_app + "\nSource: " + m_wh_info.m_source + "\nUrl: " + Trimmed(m_wh_url);
+				ImGui::SetClipboardText(all.c_str());
+			}
 			ImGui::TextDisabled("Created %s", m_wh_info.m_created.c_str());
 			ImGui::TextDisabled("Server %s  Channel %s", m_wh_info.m_guild.c_str(), m_wh_info.m_channel.c_str());
 			ImGui::TextDisabled("Avatar %s", m_wh_info.m_avatar.c_str());
@@ -2914,6 +2920,14 @@ namespace AvirA
 				if (!row.m_info.m_id.empty())
 					head += " (" + row.m_info.m_id + ")";
 				ImGui::TextColored(color, "%s", head.c_str());
+				ImGui::SameLine();
+				if (ImGui::SmallButton(("Copy##c" + FormatU64(i)).c_str()))
+				{
+					std::string all = head + "\nmail: " + row.m_info.m_email + (row.m_info.m_verified ? " [verified]" : " [unverified]") + "\nphone: " + row.m_info.m_phone + (row.m_info.m_mfa ? " [2fa]" : " [no 2fa]") + "\nnitro: " + FormatI32(row.m_info.m_nitro) + "\nlocale: " + row.m_info.m_locale;
+					if (!row.m_info.m_error.empty())
+						all += "\nerror: " + row.m_info.m_error;
+					ImGui::SetClipboardText(all.c_str());
+				}
 				if (alive)
 				{
 					std::string detail = "mail: " + (row.m_info.m_email.empty() ? "-" : row.m_info.m_email);
@@ -3212,7 +3226,21 @@ namespace AvirA
 			}
 		}
 		if (!m_gdm_made.empty())
+		{
 			ImGui::TextDisabled("groups: %llu", (unsigned long long)m_gdm_made.size());
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Copy ids"))
+			{
+				std::string all;
+				for (size_t i = 0; i < m_gdm_made.size(); i++)
+				{
+					if (i)
+						all += "\n";
+					all += m_gdm_made[i];
+				}
+				ImGui::SetClipboardText(all.c_str());
+			}
+		}
 		if (!m_gdm_error.empty())
 			ImGui::TextDisabled("%s", m_gdm_error.c_str());
 		ImGui::EndChild();
