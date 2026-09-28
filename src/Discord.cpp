@@ -721,4 +721,336 @@ namespace AvirA
 			return 0;
 		}
 	}
+
+	static int Base64Value(char c)
+	{
+		if (c >= 'A' && c <= 'Z')
+			return c - 'A';
+		if (c >= 'a' && c <= 'z')
+			return c - 'a' + 26;
+		if (c >= '0' && c <= '9')
+			return c - '0' + 52;
+		if (c == '+' || c == '-')
+			return 62;
+		if (c == '/' || c == '_')
+			return 63;
+		return -1;
+	}
+
+	static std::string Base64DecodeText(const std::string& text)
+	{
+		std::string out;
+		int bits = 0;
+		int value = 0;
+		for (size_t i = 0; i < text.size(); i++)
+		{
+			if (text[i] == '=')
+				break;
+			int digit = Base64Value(text[i]);
+			if (digit < 0)
+				continue;
+			value = (value << 6) | digit;
+			bits += 6;
+			if (bits >= 8)
+			{
+				bits -= 8;
+				out.push_back((char)((value >> bits) & 0xFF));
+			}
+		}
+		return out;
+	}
+
+	std::string C_DiscordClient::TokenUserId(const std::string& token)
+	{
+		size_t dot = token.find('.');
+		std::string first = dot == std::string::npos ? token : token.substr(0, dot);
+		std::string raw = Base64DecodeText(first);
+		std::string digits;
+		for (size_t i = 0; i < raw.size(); i++)
+		{
+			if (raw[i] >= '0' && raw[i] <= '9')
+				digits.push_back(raw[i]);
+			else if (!digits.empty())
+				break;
+		}
+		return digits;
+	}
+
+	bool C_DiscordClient::FetchTokenInfo(S_TokenInfo& out)
+	{
+		out = S_TokenInfo();
+		S_HttpResult result = m_http.Get("/users/@me");
+		if (!result.m_ok)
+		{
+			out.m_id = TokenUserId(m_token);
+			if (result.m_status == 401)
+			{
+				out.m_status = "dead";
+				out.m_error = "401 Unauthorized";
+			}
+			else if (result.m_status == 403)
+			{
+				out.m_status = "locked";
+				out.m_error = "403 Locked";
+			}
+			else
+			{
+				out.m_status = "error";
+				out.m_error = ShortError(result);
+			}
+			return false;
+		}
+		C_Json root = C_Json::Parse(result.m_body);
+		out.m_name = root.GetText("username");
+		out.m_id = root.GetText("id");
+		out.m_global = root.GetText("global_name");
+		out.m_email = root.GetText("email");
+		out.m_phone = root.GetText("phone");
+		out.m_locale = root.GetText("locale");
+		out.m_verified = root.GetBool("verified", false);
+		out.m_mfa = root.GetBool("mfa_enabled", false);
+		out.m_nitro = (int)root.GetInt("premium_type", 0);
+		out.m_status = out.m_id.empty() ? "error" : "alive";
+		return out.m_status == "alive";
+	}
+
+	bool C_DiscordClient::SendTts(const std::string& channel, const std::string& text, std::string& error, std::string* out_id)
+	{
+		if (Trimmed(text).empty())
+		{
+			error = "Empty text";
+			return false;
+		}
+		C_Json body = C_Json::MakeDict();
+		body.Set("content", text);
+		body.Set("tts", true);
+		S_HttpResult result = m_http.PostJson("/channels/" + channel + "/messages", body.Dump());
+		if (!result.m_ok)
+		{
+			error = ShortError(result);
+			return false;
+		}
+		if (out_id)
+			*out_id = C_Json::Parse(result.m_body).GetText("id");
+		return true;
+	}
+
+	bool C_DiscordClient::SendPoll(const std::string& channel, const std::string& text, const std::string& question, const std::vector<std::string>& answers, int duration, bool multi, std::string& error, std::string* out_id)
+	{
+		std::vector<std::string> clean;
+		for (size_t i = 0; i < answers.size() && i < 10; i++)
+		{
+			std::string item = Trimmed(answers[i]);
+			if (!item.empty())
+				clean.push_back(item);
+		}
+		if (Trimmed(question).empty() || clean.size() < 2)
+		{
+			error = "Need question and 2+ answers";
+			return false;
+		}
+		C_Json body = C_Json::MakeDict();
+		if (!Trimmed(text).empty())
+			body.Set("content", text);
+		C_Json poll = C_Json::MakeDict();
+		C_Json ask = C_Json::MakeDict();
+		ask.Set("text", Trimmed(question));
+		poll.Set("question", ask);
+		C_Json list = C_Json::MakeList();
+		for (size_t i = 0; i < clean.size(); i++)
+		{
+			C_Json media = C_Json::MakeDict();
+			media.Set("text", clean[i]);
+			C_Json answer = C_Json::MakeDict();
+			answer.Set("poll_media", media);
+			list.Push(answer);
+		}
+		poll.Set("answers", list);
+		poll.Set("duration", duration < 1 ? 24 : duration);
+		poll.Set("allow_multiselect", multi);
+		body.Set("poll", poll);
+		S_HttpResult result = m_http.PostJson("/channels/" + channel + "/messages", body.Dump());
+		if (!result.m_ok)
+		{
+			error = ShortError(result);
+			return false;
+		}
+		if (out_id)
+			*out_id = C_Json::Parse(result.m_body).GetText("id");
+		return true;
+	}
+
+	bool C_DiscordClient::CreateThread(const std::string& channel, const std::string& name, int archive, int type, std::string& error, std::string* out_id)
+	{
+		if (Trimmed(name).empty())
+		{
+			error = "Empty name";
+			return false;
+		}
+		C_Json body = C_Json::MakeDict();
+		body.Set("name", Trimmed(name));
+		body.Set("auto_archive_duration", archive <= 0 ? 1440 : archive);
+		body.Set("type", type == 12 ? 12 : 11);
+		S_HttpResult result = m_http.PostJson("/channels/" + channel + "/threads", body.Dump());
+		if (!result.m_ok)
+		{
+			error = ShortError(result);
+			return false;
+		}
+		if (out_id)
+			*out_id = C_Json::Parse(result.m_body).GetText("id");
+		return true;
+	}
+
+	bool C_DiscordClient::RingCall(const std::string& channel, const std::vector<std::string>& recipients, std::string& error)
+	{
+		C_Json body = C_Json::MakeDict();
+		if (!recipients.empty())
+		{
+			C_Json list = C_Json::MakeList();
+			for (size_t i = 0; i < recipients.size(); i++)
+			{
+				if (!Trimmed(recipients[i]).empty())
+					list.Push(Trimmed(recipients[i]));
+			}
+			body.Set("recipients", list);
+		}
+		S_HttpResult result = m_http.PostJson("/channels/" + channel + "/call/ring", body.Dump());
+		if (!result.m_ok)
+		{
+			error = ShortError(result);
+			return false;
+		}
+		return true;
+	}
+
+	bool C_DiscordClient::CreateGroupDM(const std::vector<std::string>& recipients, std::string& error, std::string* out_id)
+	{
+		C_Json list = C_Json::MakeList();
+		for (size_t i = 0; i < recipients.size(); i++)
+		{
+			if (!Trimmed(recipients[i]).empty())
+				list.Push(Trimmed(recipients[i]));
+		}
+		if (list.Size() == 0)
+		{
+			error = "Need user ids";
+			return false;
+		}
+		C_Json body = C_Json::MakeDict();
+		body.Set("recipients", list);
+		S_HttpResult result = m_http.PostJson("/users/@me/channels", body.Dump());
+		if (!result.m_ok)
+		{
+			error = ShortError(result);
+			return false;
+		}
+		if (out_id)
+			*out_id = C_Json::Parse(result.m_body).GetText("id");
+		return true;
+	}
+
+	bool C_DiscordClient::PatchChannel(const std::string& channel, const std::string& name, const std::string& icon, std::string& error)
+	{
+		C_Json body = C_Json::MakeDict();
+		if (!Trimmed(name).empty())
+			body.Set("name", Trimmed(name));
+		if (!icon.empty())
+			body.Set("icon", icon);
+		S_HttpResult result = m_http.PatchJson("/channels/" + channel, body.Dump());
+		if (!result.m_ok)
+		{
+			error = ShortError(result);
+			return false;
+		}
+		return true;
+	}
+
+	bool C_DiscordClient::AddGroupRecipient(const std::string& channel, const std::string& user, std::string& error)
+	{
+		C_Json body = C_Json::MakeDict();
+		S_HttpResult result = m_http.PutJson("/channels/" + channel + "/recipients/" + Trimmed(user), body.Dump());
+		if (!result.m_ok)
+		{
+			error = ShortError(result);
+			return false;
+		}
+		return true;
+	}
+
+	bool C_DiscordClient::FetchSounds(const std::string& guild, std::vector<S_Sound>& out)
+	{
+		out.clear();
+		S_HttpResult result = m_http.Get("/guilds/" + guild + "/soundboard-sounds");
+		if (result.m_ok)
+		{
+			C_Json root = C_Json::Parse(result.m_body);
+			const C_Json* list = root.m_type == E_JsonType::List ? &root : root.Find("items");
+			if (list && list->m_type == E_JsonType::List)
+			{
+				for (size_t i = 0; i < list->m_list.size(); i++)
+				{
+					S_Sound sound;
+					sound.m_id = list->m_list[i].GetText("sound_id");
+					if (sound.m_id.empty())
+						sound.m_id = list->m_list[i].GetText("id");
+					sound.m_name = list->m_list[i].GetText("name");
+					if (!sound.m_id.empty())
+						out.push_back(sound);
+				}
+			}
+		}
+		S_HttpResult base = m_http.Get("/soundboard-default-sounds");
+		if (base.m_ok)
+		{
+			C_Json root = C_Json::Parse(base.m_body);
+			if (root.m_type == E_JsonType::List)
+			{
+				for (size_t i = 0; i < root.m_list.size(); i++)
+				{
+					S_Sound sound;
+					sound.m_id = root.m_list[i].GetText("sound_id");
+					if (sound.m_id.empty())
+						sound.m_id = root.m_list[i].GetText("id");
+					sound.m_name = root.m_list[i].GetText("name");
+					if (!sound.m_id.empty())
+						out.push_back(sound);
+				}
+			}
+		}
+		return !out.empty();
+	}
+
+	bool C_DiscordClient::PlayBoard(const std::string& channel, const std::string& sound, const std::string& guild, std::string& error)
+	{
+		C_Json body = C_Json::MakeDict();
+		body.Set("sound_id", sound);
+		if (!Trimmed(guild).empty())
+			body.Set("source_guild_id", Trimmed(guild));
+		S_HttpResult result = m_http.PostJson("/channels/" + channel + "/send-soundboard-sound", body.Dump());
+		if (!result.m_ok)
+		{
+			error = ShortError(result);
+			return false;
+		}
+		return true;
+	}
+
+	bool C_DiscordClient::PatchMe(const std::string& global, std::string& error)
+	{
+		if (Trimmed(global).empty() || Trimmed(global).size() > 32)
+		{
+			error = "Bad name";
+			return false;
+		}
+		C_Json body = C_Json::MakeDict();
+		body.Set("global_name", Trimmed(global));
+		S_HttpResult result = m_http.PatchJson("/users/@me", body.Dump());
+		if (!result.m_ok)
+		{
+			error = ShortError(result);
+			return false;
+		}
+		return true;
+	}
 }

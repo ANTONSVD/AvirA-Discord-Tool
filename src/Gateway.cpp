@@ -84,6 +84,49 @@ namespace AvirA
 		WsSend(ws, m_send, "{\"op\":8,\"d\":{\"guild_id\":\"" + guild + "\",\"user_ids\":[\"" + user + "\"],\"limit\":5,\"presences\":true}}");
 	}
 
+	bool C_Gateway::SendRaw(const std::string& text)
+	{
+		if (text.empty())
+			return false;
+		HINTERNET ws = nullptr;
+		{
+			std::lock_guard<std::mutex> guard(m_lock);
+			ws = (HINTERNET)m_ws;
+		}
+		if (!ws)
+			return false;
+		return WsSend(ws, m_send, text);
+	}
+
+	bool C_Gateway::SendVoice(const std::string& guild, const std::string& channel, bool mute, bool deaf, bool corrupt, bool stream)
+	{
+		std::string frame = "{\"op\":4,\"d\":{\"guild_id\":\"" + guild + "\",\"channel_id\":";
+		if (channel.empty())
+			frame += "null";
+		else
+			frame += "\"" + channel + "\"";
+		frame += ",\"self_mute\":";
+		frame += mute ? "true" : "false";
+		frame += ",\"self_deaf\":";
+		frame += deaf ? "true" : "false";
+		if (stream)
+			frame += ",\"self_stream\":true";
+		frame += "}}";
+		if (corrupt)
+		{
+			size_t at = frame.find("\"self_mute\":false");
+			if (at != std::string::npos)
+				frame.replace(at, 17, "NiceOneDiscord");
+			else
+			{
+				at = frame.find("\"self_mute\":true");
+				if (at != std::string::npos)
+					frame.replace(at, 16, "NiceOneDiscor");
+			}
+		}
+		return SendRaw(frame);
+	}
+
 	void C_Gateway::Start()
 	{
 		bool expected = false;

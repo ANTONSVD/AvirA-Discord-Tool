@@ -1,5 +1,7 @@
 #pragma once
 #include "Store.hpp"
+#include "Checker.hpp"
+#include "Nicks.hpp"
 
 namespace AvirA
 {
@@ -18,6 +20,9 @@ namespace AvirA
 		void DrawAutomatic();
 		void DrawTyping();
 		void DrawWebhooks();
+		void DrawChecker();
+		void DrawRaid();
+		void DrawVoice();
 		void DrawSettings();
 
 		void Login();
@@ -30,6 +35,7 @@ namespace AvirA
 		void RefreshAllSenderChannels();
 		void SendSpam();
 		void SendSpamWith(const std::string& text);
+		void SendPoll();
 		void DeleteSenderMine();
 		void DeleteLastBatch();
 		void RefreshCleaner();
@@ -163,5 +169,69 @@ namespace AvirA
 		int m_clean_guild_index = 0;
 		int m_clean_channel_index = 0;
 		int m_clean_hours_index = 3;
+
+		bool m_send_tts = false;
+		char m_poll_text[512] = {};
+		char m_poll_q[256] = {};
+		char m_poll_a[4][128] = {};
+		int m_poll_hours = 24;
+		bool m_poll_multi = false;
+		std::string m_poll_error;
+		bool m_poll_busy = false;
+
+		C_Checker m_checker;
+		char m_check_add[512] = {};
+		std::string m_check_error;
+		bool m_check_busy = false;
+		std::atomic<int> m_check_done = 0;
+
+		char m_raid_channel[64] = {};
+		char m_raid_name[128] = {};
+		char m_raid_text[512] = {};
+		int m_raid_count = 3;
+		int m_raid_archive = 1440;
+		bool m_raid_private = false;
+		std::string m_raid_error;
+		bool m_raid_busy = false;
+		std::atomic<int> m_raid_done = 0;
+		char m_ring_channel[64] = {};
+		char m_ring_users[256] = {};
+		int m_ring_count = 5;
+		int m_ring_delay = 3000;
+		std::string m_ring_error;
+		bool m_ring_busy = false;
+		std::atomic<int> m_ring_done = 0;
+		char m_gdm_users[512] = {};
+		int m_gdm_count = 5;
+		char m_gdm_text[512] = {};
+		char m_gdm_name[128] = {};
+		char m_gdm_icon[512] = {};
+		std::vector<std::string> m_gdm_made;
+		std::string m_gdm_error;
+		bool m_gdm_busy = false;
+		std::atomic<int> m_gdm_done = 0;
+		C_Nicks m_nicks;
+		char m_nick_edit[64] = {};
+		int m_nick_minutes = 30;
+		bool m_nicks_loaded = false;
+
+		C_Gateway m_voice;
+		bool m_voice_live = false;
+		char m_voice_guild[64] = {};
+		char m_voice_channel[64] = {};
+		bool m_ghost_on = false;
+		bool m_live_on = false;
+		int m_reassert = 15;
+		std::atomic<bool> m_ghost_run = false;
+		std::string m_voice_error;
+		char m_sb_guild[64] = {};
+		std::vector<S_Sound> m_sounds;
+		int m_sound_index = 0;
+		bool m_sounds_busy = false;
+		int m_sb_count = 5;
+		int m_sb_delay = 2000;
+		std::string m_sb_error;
+		bool m_sb_busy = false;
+		std::atomic<int> m_sb_done = 0;
 	};
 }

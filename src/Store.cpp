@@ -210,6 +210,17 @@ namespace AvirA
 			text += m_auto_accounts[i];
 		}
 		text += "\n";
+		text += "nickmin=" + FormatI32(m_nick_minutes) + "\n";
+		{
+			std::string names;
+			for (size_t k = 0; k < m_nick_names.size(); k++)
+			{
+				if (k)
+					names.push_back('\x1F');
+				names += Escaped(m_nick_names[k]);
+			}
+			text += "nicknames=" + names + "\n";
+		}
 		{
 			std::string watch;
 			auto channels = m_auto.WatchedChannels();
@@ -665,6 +676,18 @@ namespace AvirA
 					p = comma + 1;
 				}
 			}
+			if (line.rfind("nickmin=", 0) == 0)
+			{
+				int minutes = std::atoi(line.substr(8).c_str());
+				if (minutes >= 1 && minutes <= 1440)
+					m_nick_minutes = minutes;
+			}
+			if (line.rfind("nicknames=", 0) == 0)
+			{
+				m_nick_names = SplitUnit(line.substr(10));
+				if (m_nick_names.size() > 50)
+					m_nick_names.resize(50);
+			}
 			if (line.rfind("keywords_", 0) == 0)
 			{
 				size_t eq = line.find('=');
@@ -981,6 +1004,27 @@ namespace AvirA
 	void C_Store::SetSenderAccounts(const std::vector<std::string>& ids)
 	{
 		m_sender_accounts = ids;
+	}
+
+	std::vector<std::string> C_Store::NickNames() const
+	{
+		return m_nick_names;
+	}
+
+	void C_Store::SetNickNames(const std::vector<std::string>& names)
+	{
+		m_nick_names = names;
+	}
+
+	int C_Store::NickMinutes() const
+	{
+		return m_nick_minutes;
+	}
+
+	void C_Store::SetNickMinutes(int minutes)
+	{
+		if (minutes >= 1 && minutes <= 1440)
+			m_nick_minutes = minutes;
 	}
 
 	bool C_Store::SpamOn() const

@@ -23,6 +23,8 @@ namespace AvirA
 		void SetPresence(const PresenceFn& callback);
 		void SetChunk(const ChunkFn& callback);
 		void RequestMembers(const std::string& guild, const std::string& user);
+		bool SendRaw(const std::string& text);
+		bool SendVoice(const std::string& guild, const std::string& channel, bool mute, bool deaf, bool corrupt, bool stream);
 		void Start();
 		void Stop();
 		bool Running() const;

@@ -359,7 +359,15 @@ namespace AvirA
 						message += " ||" + FormatU64(counter.fetch_add(1)) + "||";
 					std::string item_error;
 					std::string sent_id;
-					bool ok = targets[i].m_client && targets[i].m_client->HasToken() && targets[i].m_client->SendFiles(targets[i].m_channel, message, files, item_error, &sent_id);
+					bool has_client = targets[i].m_client && targets[i].m_client->HasToken();
+					bool ok = false;
+					if (has_client)
+					{
+						if (options.m_tts && files.empty())
+							ok = targets[i].m_client->SendTts(targets[i].m_channel, message, item_error, &sent_id);
+						else
+							ok = targets[i].m_client->SendFiles(targets[i].m_channel, message, files, item_error, &sent_id);
+					}
 					{
 						std::lock_guard<std::mutex> guard(m_lock);
 						if (!targets[i].m_guild.empty())

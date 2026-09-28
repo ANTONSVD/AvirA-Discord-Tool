@@ -88,6 +88,10 @@ namespace AvirA
 
 		std::vector<std::string> SenderAccounts() const;
 		void SetSenderAccounts(const std::vector<std::string>& ids);
+		std::vector<std::string> NickNames() const;
+		void SetNickNames(const std::vector<std::string>& names);
+		int NickMinutes() const;
+		void SetNickMinutes(int minutes);
 
 		bool SpamOn() const;
 		int SpamCount() const;
@@ -129,6 +133,8 @@ namespace AvirA
 		bool m_clean_only = false;
 		std::vector<S_TemplateItem> m_templates;
 		std::vector<std::string> m_sender_accounts;
+		std::vector<std::string> m_nick_names;
+		int m_nick_minutes = 30;
 		bool m_spam_on = false;
 		int m_spam_count = 5;
 		int m_spam_delay = 1500;

@@ -29,6 +29,7 @@ namespace AvirA
 		int m_repeat = 1;
 		int m_delay_ms = 900;
 		bool m_numbers = false;
+		bool m_tts = false;
 		int m_workers = 1;
 		std::atomic<int>* m_delay_view = nullptr;
 	};

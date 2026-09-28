@@ -5,6 +5,8 @@
 #include <commdlg.h>
 #include <shellapi.h>
 #include <ShlObj.h>
+#include <fstream>
+#include <sstream>
 
 namespace AvirA
 {
@@ -57,6 +59,11 @@ namespace AvirA
 		}
 		std::string hook = m_store.Tracker()->Webhook()->Url();
 		strncpy_s(m_hook_edit, hook.c_str(), sizeof(m_hook_edit) - 1);
+		m_nicks.Attach(m_store.Client());
+		m_nicks.ApplyNames(m_store.NickNames());
+		m_nicks.SetMinutes(m_store.NickMinutes());
+		m_nick_minutes = m_store.NickMinutes();
+		m_nicks_loaded = true;
 		m_filter.m_limit = 200;
 		m_ready = true;
 		return true;
@@ -64,6 +71,9 @@ namespace AvirA
 
 	void C_App::Shutdown()
 	{
+		m_ghost_run = false;
+		m_nicks.Stop();
+		m_voice.Stop();
 		m_store.Shutdown();
 	}
 
@@ -454,12 +464,66 @@ namespace AvirA
 			options.m_repeat = spam ? count : 1;
 			options.m_delay_ms = delay;
 			options.m_numbers = numbers && spam;
+			options.m_tts = m_send_tts;
 			options.m_workers = workers;
 			options.m_delay_view = &m_spam_delay_now;
 			std::string error;
 			spammer->SendTargets(targets, copy, files, options, error, &m_spam_done, &m_spam_total);
 			m_spam_error = error;
 			m_spam_busy = false;
+		}).detach();
+	}
+
+	void C_App::SendPoll()
+	{
+		if (m_poll_busy || m_spam_busy)
+			return;
+		if (!m_store.Logged())
+		{
+			m_poll_error = "Login first";
+			return;
+		}
+		m_poll_busy = true;
+		m_poll_error.clear();
+		std::string text = m_poll_text;
+		std::string question = m_poll_q;
+		std::vector<std::string> answers;
+		for (int i = 0; i < 4; i++)
+		{
+			if (!Trimmed(m_poll_a[i]).empty())
+				answers.push_back(m_poll_a[i]);
+		}
+		int hours = m_poll_hours;
+		bool multi = m_poll_multi;
+		auto& entries = m_store.Spammer()->Entries();
+		std::vector<S_Channel> targets;
+		for (size_t i = 0; i < entries.size(); i++)
+		{
+			for (size_t k = 0; k < entries[i].m_channels.size() && k < entries[i].m_picked.size(); k++)
+			{
+				if (entries[i].m_picked[k])
+					targets.push_back(entries[i].m_channels[k]);
+			}
+		}
+		C_DiscordClient* client = m_store.Client();
+		std::thread([this, client, targets, text, question, answers, hours, multi]() {
+			int sent = 0;
+			int failed = 0;
+			for (size_t i = 0; i < targets.size(); i++)
+			{
+				std::string error;
+				if (client->SendPoll(targets[i].m_id, text, question, answers, hours, multi, error))
+					sent++;
+				else
+				{
+					failed++;
+					m_poll_error = targets[i].m_name + ": " + error;
+				}
+				std::this_thread::sleep_for(std::chrono::milliseconds(800));
+			}
+			if (failed == 0)
+				m_poll_error = "Sent " + FormatI32(sent);
+			m_poll_busy = false;
 		}).detach();
 	}
 
@@ -1175,6 +1239,9 @@ namespace AvirA
 				m_store_dirty = true;
 			}
 		}
+		ImGui::Checkbox("TTS", &m_send_tts);
+		ImGui::SameLine();
+		ImGui::TextDisabled("voice readout on receivers");
 		size_t picked = m_store.Spammer()->PickedCount();
 		std::string send_label = "Send to " + FormatU64(picked);
 		if (m_spam_busy)
@@ -1235,6 +1302,41 @@ namespace AvirA
 		}
 		if (!m_spam_error.empty())
 			ImGui::TextDisabled("%s", m_spam_error.c_str());
+		ImGui::EndChild();
+
+		ImGui::BeginChild("poll_box", ImVec2(0, 190), true);
+		ImGui::Text("Poll");
+		ImGui::PushItemWidth(-1);
+		ImGui::InputTextWithHint("##polltext", "Optional text above poll", m_poll_text, sizeof(m_poll_text));
+		ImGui::InputTextWithHint("##pollq", "Question", m_poll_q, sizeof(m_poll_q));
+		ImGui::PopItemWidth();
+		for (int i = 0; i < 4; i++)
+		{
+			ImGui::PushItemWidth(220);
+			ImGui::InputTextWithHint(("Answer " + FormatI32(i + 1) + "##pa").c_str(), ("Answer " + FormatI32(i + 1)).c_str(), m_poll_a[i], sizeof(m_poll_a[i]));
+			ImGui::PopItemWidth();
+			if (i < 3)
+				ImGui::SameLine();
+		}
+		ImGui::PushItemWidth(110);
+		ImGui::SliderInt("Hours", &m_poll_hours, 1, 768);
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		ImGui::Checkbox("Multi", &m_poll_multi);
+		ImGui::SameLine();
+		if (m_poll_busy)
+		{
+			ImGui::BeginDisabled();
+			ImGui::Button("Sending poll...", ImVec2(160, 0));
+			ImGui::EndDisabled();
+		}
+		else
+		{
+			if (ImGui::Button("Send poll to picked", ImVec2(160, 0)))
+				SendPoll();
+		}
+		if (!m_poll_error.empty())
+			ImGui::TextDisabled("%s", m_poll_error.c_str());
 		ImGui::EndChild();
 
 		ImGui::BeginChild("templates", ImVec2(0, 130), true);
@@ -2634,6 +2736,747 @@ namespace AvirA
 		}
 	}
 
+	static std::vector<std::string> SplitIds(const std::string& text)
+	{
+		std::vector<std::string> out;
+		size_t at = 0;
+		while (at < text.size())
+		{
+			size_t end = text.find_first_of(",; \n\t", at);
+			std::string part = Trimmed(text.substr(at, end == std::string::npos ? std::string::npos : end - at));
+			if (!part.empty())
+				out.push_back(part);
+			if (end == std::string::npos)
+				break;
+			at = end + 1;
+		}
+		return out;
+	}
+
+	static std::string Base64EncodeBytes(const std::string& data)
+	{
+		static const char* digits = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+		std::string out;
+		size_t i = 0;
+		while (i < data.size())
+		{
+			unsigned char a = (unsigned char)data[i++];
+			bool has_b = i < data.size();
+			unsigned char b = has_b ? (unsigned char)data[i++] : 0;
+			bool has_c = i < data.size();
+			unsigned char c = has_c ? (unsigned char)data[i++] : 0;
+			out.push_back(digits[(a >> 2) & 0x3F]);
+			out.push_back(digits[((a & 0x03) << 4) | ((b >> 4) & 0x0F)]);
+			out.push_back(has_b ? digits[((b & 0x0F) << 2) | ((c >> 6) & 0x03)] : '=');
+			out.push_back(has_c ? digits[c & 0x3F] : '=');
+		}
+		return out;
+	}
+
+	static std::string FileToDataUri(const std::string& path)
+	{
+		std::string clean = Trimmed(path);
+		if (clean.empty())
+			return "";
+		std::ifstream file(clean, std::ios::binary);
+		if (!file.good())
+			return "";
+		std::ostringstream blob;
+		blob << file.rdbuf();
+		std::string data = blob.str();
+		if (data.empty() || data.size() > 512 * 1024)
+			return "";
+		std::string mime = "image/png";
+		std::string lower = clean;
+		for (size_t i = 0; i < lower.size(); i++)
+		{
+			if (lower[i] >= 'A' && lower[i] <= 'Z')
+				lower[i] = (char)(lower[i] + 32);
+		}
+		if (lower.size() >= 4 && lower.compare(lower.size() - 4, 4, ".jpg") == 0)
+			mime = "image/jpeg";
+		else if (lower.size() >= 5 && lower.compare(lower.size() - 5, 5, ".jpeg") == 0)
+			mime = "image/jpeg";
+		else if (lower.size() >= 4 && lower.compare(lower.size() - 4, 4, ".gif") == 0)
+			mime = "image/gif";
+		else if (lower.size() >= 5 && lower.compare(lower.size() - 5, 5, ".webp") == 0)
+			mime = "image/webp";
+		return "data:" + mime + ";base64," + Base64EncodeBytes(data);
+	}
+
+	void C_App::DrawChecker()
+	{
+		ImGui::BeginChild("check_box", ImVec2(0, 120), true);
+		ImGui::Text("Token checker");
+		ImGui::PushItemWidth(-130);
+		ImGui::InputTextWithHint("##checkadd", "Extra token, Enter to check", m_check_add, sizeof(m_check_add), ImGuiInputTextFlags_Password | ImGuiInputTextFlags_EnterReturnsTrue);
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (ImGui::Button("Check one", ImVec2(120, 0)) && !m_check_busy)
+		{
+			std::string token = Trimmed(m_check_add);
+			if (token.empty())
+				m_check_error = "Empty token";
+			else
+			{
+				m_check_busy = true;
+				m_check_error.clear();
+				m_check_done = 0;
+				std::thread([this, token]() {
+					S_TokenRow row;
+					m_checker.Check(token, row);
+					m_check_error = row.m_info.m_name.empty() ? row.m_info.m_status + " " + row.m_info.m_error : row.m_info.m_name + " is " + row.m_info.m_status;
+					m_check_busy = false;
+				}).detach();
+			}
+		}
+		if (m_check_busy)
+		{
+			ImGui::BeginDisabled();
+			ImGui::Button("Checking...", ImVec2(160, 0));
+			ImGui::EndDisabled();
+		}
+		else
+		{
+			if (ImGui::Button("Check all saved accounts", ImVec2(200, 0)))
+			{
+				auto accounts = m_store.Accounts();
+				if (accounts.empty())
+					m_check_error = "No saved accounts";
+				else
+				{
+					m_check_busy = true;
+					m_check_error.clear();
+					m_check_done = 0;
+					std::thread([this, accounts]() {
+						std::vector<std::string> tokens;
+						for (size_t i = 0; i < accounts.size(); i++)
+							tokens.push_back(accounts[i].m_token);
+						m_checker.CheckAll(tokens, &m_check_done);
+						m_check_busy = false;
+					}).detach();
+				}
+			}
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Clear"))
+			m_checker.Clear();
+		if (m_check_busy)
+		{
+			ImGui::SameLine();
+			ImGui::TextDisabled("%d ...", m_check_done.load());
+		}
+		if (!m_check_error.empty())
+			ImGui::TextDisabled("%s", m_check_error.c_str());
+		ImGui::EndChild();
+
+		ImGui::BeginChild("check_rows", ImVec2(0, 0), true);
+		auto rows = m_checker.Rows();
+		if (rows.empty())
+			ImGui::TextDisabled("No results yet.");
+		else
+		{
+			ImGui::TextDisabled("Alive %llu / dead %llu", (unsigned long long)m_checker.Alive(), (unsigned long long)m_checker.Dead());
+			ImGui::Separator();
+			for (size_t i = 0; i < rows.size(); i++)
+			{
+				const S_TokenRow& row = rows[i];
+				bool alive = row.m_info.m_status == "alive";
+				ImVec4 color = alive ? ImVec4(0.45f, 1.0f, 0.55f, 1.0f) : ImVec4(1.0f, 0.45f, 0.45f, 1.0f);
+				std::string head = row.m_short + "  " + row.m_info.m_status;
+				if (!row.m_info.m_name.empty())
+					head += "  " + row.m_info.m_name;
+				if (!row.m_info.m_id.empty())
+					head += " (" + row.m_info.m_id + ")";
+				ImGui::TextColored(color, "%s", head.c_str());
+				if (alive)
+				{
+					std::string detail = "mail: " + (row.m_info.m_email.empty() ? "-" : row.m_info.m_email);
+					detail += row.m_info.m_verified ? " [verified]" : " [unverified]";
+					detail += "  phone: " + (row.m_info.m_phone.empty() ? "-" : row.m_info.m_phone);
+					detail += row.m_info.m_mfa ? "  2fa: yes" : "  2fa: no";
+					detail += "  nitro: " + FormatI32(row.m_info.m_nitro);
+					if (!row.m_info.m_locale.empty())
+						detail += "  " + row.m_info.m_locale;
+					ImGui::TextDisabled("%s", detail.c_str());
+				}
+				else if (!row.m_info.m_error.empty())
+					ImGui::TextDisabled("%s", row.m_info.m_error.c_str());
+			}
+		}
+		ImGui::EndChild();
+	}
+
+	void C_App::DrawRaid()
+	{
+		ImGui::BeginChild("raid_threads", ImVec2(0, 210), true);
+		ImGui::Text("Thread spam");
+		ImGui::PushItemWidth(200);
+		ImGui::InputTextWithHint("##raidch", "Channel id", m_raid_channel, sizeof(m_raid_channel));
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		ImGui::PushItemWidth(200);
+		ImGui::InputTextWithHint("##raidname", "Thread name", m_raid_name, sizeof(m_raid_name));
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		ImGui::PushItemWidth(90);
+		ImGui::SliderInt("Count", &m_raid_count, 1, 20);
+		ImGui::PopItemWidth();
+		ImGui::PushItemWidth(-1);
+		ImGui::InputTextWithHint("##raidtext", "Text inside each thread", m_raid_text, sizeof(m_raid_text));
+		ImGui::PopItemWidth();
+		const char* archives[] = { "1h", "24h", "3d", "7d" };
+		int archive_values[] = { 60, 1440, 4320, 10080 };
+		static int archive_index = 1;
+		ImGui::PushItemWidth(90);
+		ImGui::Combo("Archive", &archive_index, archives, 4);
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		ImGui::Checkbox("Private", &m_raid_private);
+		ImGui::SameLine();
+		if (m_raid_busy)
+		{
+			ImGui::BeginDisabled();
+			ImGui::Button("Spamming...", ImVec2(160, 0));
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			ImGui::TextDisabled("%d / %d", m_raid_done.load(), m_raid_count);
+		}
+		else
+		{
+			if (ImGui::Button("Start thread spam", ImVec2(160, 0)))
+			{
+				std::string channel = Trimmed(m_raid_channel);
+				std::string name = Trimmed(m_raid_name);
+				std::string text = m_raid_text;
+				int count = m_raid_count;
+				int archive = archive_values[archive_index < 0 || archive_index > 3 ? 1 : archive_index];
+				int type = m_raid_private ? 12 : 11;
+				if (channel.empty() || name.empty())
+					m_raid_error = "Need channel and name";
+				else
+				{
+					m_raid_busy = true;
+					m_raid_done = 0;
+					m_raid_error.clear();
+					C_DiscordClient* client = m_store.Client();
+					std::thread([this, client, channel, name, text, count, archive, type]() {
+						int made = 0;
+						for (int i = 0; i < count; i++)
+						{
+							std::string error;
+							std::string thread;
+							std::string item = name;
+							if (count > 1)
+								item += " " + FormatI32(i + 1);
+							if (client->CreateThread(channel, item, archive, type, error, &thread) && !thread.empty())
+							{
+								made++;
+								if (!Trimmed(text).empty())
+								{
+									std::string send_error;
+									client->SendText(thread, text, send_error);
+								}
+							}
+							else
+								m_raid_error = error;
+							m_raid_done++;
+							std::this_thread::sleep_for(std::chrono::milliseconds(900));
+						}
+						if (m_raid_error.empty())
+							m_raid_error = "Made " + FormatI32(made);
+						m_raid_busy = false;
+					}).detach();
+				}
+			}
+		}
+		if (!m_raid_error.empty())
+			ImGui::TextDisabled("%s", m_raid_error.c_str());
+		ImGui::EndChild();
+
+		ImGui::BeginChild("raid_ring", ImVec2(0, 150), true);
+		ImGui::Text("Ring spam");
+		ImGui::PushItemWidth(220);
+		ImGui::InputTextWithHint("##ringch", "DM or group id", m_ring_channel, sizeof(m_ring_channel));
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		ImGui::PushItemWidth(220);
+		ImGui::InputTextWithHint("##ringusers", "User ids, empty for all", m_ring_users, sizeof(m_ring_users));
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		ImGui::PushItemWidth(80);
+		ImGui::SliderInt("Times", &m_ring_count, 1, 30);
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		ImGui::PushItemWidth(110);
+		ImGui::SliderInt("Delay ms", &m_ring_delay, 1000, 20000);
+		ImGui::PopItemWidth();
+		if (m_ring_busy)
+		{
+			ImGui::BeginDisabled();
+			ImGui::Button("Ringing...", ImVec2(160, 0));
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			ImGui::TextDisabled("%d / %d", m_ring_done.load(), m_ring_count);
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Stop##ring"))
+				m_ring_done = m_ring_count;
+		}
+		else
+		{
+			if (ImGui::Button("Start ring spam", ImVec2(160, 0)))
+			{
+				std::string channel = Trimmed(m_ring_channel);
+				std::vector<std::string> users = SplitIds(m_ring_users);
+				int count = m_ring_count;
+				int delay = m_ring_delay;
+				if (channel.empty())
+					m_ring_error = "Need channel id";
+				else
+				{
+					m_ring_busy = true;
+					m_ring_done = 0;
+					m_ring_error.clear();
+					C_DiscordClient* client = m_store.Client();
+					std::thread([this, client, channel, users, count, delay]() {
+						int ok = 0;
+						for (int i = 0; i < count && m_ring_done < count; i++)
+						{
+							std::string error;
+							if (client->RingCall(channel, users, error))
+								ok++;
+							else
+								m_ring_error = error;
+							m_ring_done++;
+							for (int left = 0; left < delay / 100 && m_ring_done < count; left++)
+								std::this_thread::sleep_for(std::chrono::milliseconds(100));
+						}
+						if (m_ring_error.empty())
+							m_ring_error = "Rang " + FormatI32(ok);
+						m_ring_busy = false;
+					}).detach();
+				}
+			}
+		}
+		if (!m_ring_error.empty())
+			ImGui::TextDisabled("%s", m_ring_error.c_str());
+		ImGui::EndChild();
+
+		ImGui::BeginChild("raid_gdm", ImVec2(0, 250), true);
+		ImGui::Text("Group DM hell");
+		ImGui::PushItemWidth(-1);
+		ImGui::InputTextWithHint("##gdmusers", "User ids comma separated", m_gdm_users, sizeof(m_gdm_users));
+		ImGui::InputTextWithHint("##gdmtext", "Text to send into each group", m_gdm_text, sizeof(m_gdm_text));
+		ImGui::PopItemWidth();
+		ImGui::PushItemWidth(90);
+		ImGui::SliderInt("Groups", &m_gdm_count, 1, 20);
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (m_gdm_busy)
+		{
+			ImGui::BeginDisabled();
+			ImGui::Button("Cooking...", ImVec2(160, 0));
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			ImGui::TextDisabled("%d / %d", m_gdm_done.load(), m_gdm_count);
+		}
+		else
+		{
+			if (ImGui::Button("Create group spam", ImVec2(160, 0)))
+			{
+				std::vector<std::string> users = SplitIds(m_gdm_users);
+				std::string text = m_gdm_text;
+				int count = m_gdm_count;
+				if (users.empty())
+					m_gdm_error = "Need user ids";
+				else
+				{
+					m_gdm_busy = true;
+					m_gdm_done = 0;
+					m_gdm_error.clear();
+					C_DiscordClient* client = m_store.Client();
+					std::thread([this, client, users, text, count]() {
+						std::vector<std::string> made;
+						for (int i = 0; i < count; i++)
+						{
+							std::string error;
+							std::string id;
+							if (client->CreateGroupDM(users, error, &id) && !id.empty())
+							{
+								made.push_back(id);
+								if (!Trimmed(text).empty())
+								{
+									std::string send_error;
+									client->SendText(id, text, send_error);
+								}
+							}
+							else
+								m_gdm_error = error;
+							m_gdm_done++;
+							std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+						}
+						{
+							m_gdm_made.insert(m_gdm_made.end(), made.begin(), made.end());
+							if (m_gdm_made.size() > 40)
+								m_gdm_made.erase(m_gdm_made.begin(), m_gdm_made.begin() + (m_gdm_made.size() - 40));
+						}
+						if (m_gdm_error.empty())
+							m_gdm_error = "Made " + FormatI32((int)made.size());
+						m_gdm_busy = false;
+					}).detach();
+				}
+			}
+		}
+		ImGui::PushItemWidth(200);
+		ImGui::InputTextWithHint("##gdmname", "New name for made groups", m_gdm_name, sizeof(m_gdm_name));
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Rename all") && !m_gdm_made.empty())
+		{
+			std::string name = Trimmed(m_gdm_name);
+			if (!name.empty())
+			{
+				m_gdm_error.clear();
+				C_DiscordClient* client = m_store.Client();
+				std::vector<std::string> made = m_gdm_made;
+				std::thread([this, client, made, name]() {
+					int ok = 0;
+					for (size_t i = 0; i < made.size(); i++)
+					{
+						std::string error;
+						if (client->PatchChannel(made[i], name, "", error))
+							ok++;
+						std::this_thread::sleep_for(std::chrono::milliseconds(700));
+					}
+					m_gdm_error = "Renamed " + FormatI32(ok);
+				}).detach();
+			}
+		}
+		ImGui::PushItemWidth(200);
+		ImGui::InputTextWithHint("##gdmicon", "Icon image path", m_gdm_icon, sizeof(m_gdm_icon));
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Icon all") && !m_gdm_made.empty())
+		{
+			std::string uri = FileToDataUri(m_gdm_icon);
+			if (uri.empty())
+				m_gdm_error = "Bad image";
+			else
+			{
+				m_gdm_error.clear();
+				C_DiscordClient* client = m_store.Client();
+				std::vector<std::string> made = m_gdm_made;
+				std::thread([this, client, made, uri]() {
+					int ok = 0;
+					for (size_t i = 0; i < made.size(); i++)
+					{
+						std::string error;
+						if (client->PatchChannel(made[i], "", uri, error))
+							ok++;
+						std::this_thread::sleep_for(std::chrono::milliseconds(700));
+					}
+					m_gdm_error = "Icons " + FormatI32(ok);
+				}).detach();
+			}
+		}
+		if (!m_gdm_made.empty())
+			ImGui::TextDisabled("groups: %llu", (unsigned long long)m_gdm_made.size());
+		if (!m_gdm_error.empty())
+			ImGui::TextDisabled("%s", m_gdm_error.c_str());
+		ImGui::EndChild();
+
+		ImGui::BeginChild("raid_nicks", ImVec2(0, 0), true);
+		ImGui::Text("Nick rotator (global name)");
+		ImGui::PushItemWidth(220);
+		bool submit_nick = ImGui::InputTextWithHint("##nickedit", "Nick, Enter to add", m_nick_edit, sizeof(m_nick_edit), ImGuiInputTextFlags_EnterReturnsTrue);
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if ((ImGui::SmallButton("Add") || submit_nick))
+		{
+			if (m_nicks.Add(m_nick_edit))
+			{
+				m_store.SetNickNames(m_nicks.Names());
+				m_store_dirty = true;
+				memset(m_nick_edit, 0, sizeof(m_nick_edit));
+			}
+		}
+		auto names = m_nicks.Names();
+		for (size_t i = 0; i < names.size(); i++)
+		{
+			ImGui::TextDisabled("%llu. %s", (unsigned long long)(i + 1), names[i].c_str());
+			ImGui::SameLine();
+			if (ImGui::SmallButton(("x##n" + FormatU64(i)).c_str()))
+			{
+				m_nicks.Remove(i);
+				m_store.SetNickNames(m_nicks.Names());
+				m_store_dirty = true;
+				break;
+			}
+		}
+		ImGui::PushItemWidth(120);
+		if (ImGui::SliderInt("Minutes", &m_nick_minutes, 1, 720))
+		{
+			m_nicks.SetMinutes(m_nick_minutes);
+			m_store.SetNickMinutes(m_nick_minutes);
+			m_store_dirty = true;
+		}
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (m_nicks.Running())
+		{
+			if (ImGui::Button("Stop rotator", ImVec2(140, 0)))
+				m_nicks.Stop();
+		}
+		else
+		{
+			if (ImGui::Button("Start rotator", ImVec2(140, 0)))
+			{
+				if (!m_nicks.Start())
+					m_gdm_error = "Need names and login";
+			}
+		}
+		ImGui::SameLine();
+		ImGui::TextDisabled("%s", m_nicks.Status().c_str());
+		ImGui::EndChild();
+	}
+
+	void C_App::DrawVoice()
+	{
+		ImGui::BeginChild("voice_conn", ImVec2(0, 120), true);
+		ImGui::Text("Voice gateway");
+		if (m_voice.Running())
+		{
+			ImGui::TextDisabled("state: %s", m_voice.State().c_str());
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Disconnect"))
+			{
+				m_ghost_run = false;
+				m_ghost_on = false;
+				m_live_on = false;
+				m_voice.Stop();
+			}
+		}
+		else
+		{
+			if (ImGui::Button("Connect gateway", ImVec2(160, 0)))
+			{
+				if (!m_store.Logged())
+					m_voice_error = "Login first";
+				else
+				{
+					m_voice.SetToken(m_store.Token());
+					m_voice.Start();
+					m_voice_error.clear();
+				}
+			}
+		}
+		ImGui::PushItemWidth(220);
+		ImGui::InputTextWithHint("##vg", "Guild id", m_voice_guild, sizeof(m_voice_guild));
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		ImGui::PushItemWidth(220);
+		ImGui::InputTextWithHint("##vc", "Voice channel id", m_voice_channel, sizeof(m_voice_channel));
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Join"))
+		{
+			if (m_voice.SendVoice(Trimmed(m_voice_guild), Trimmed(m_voice_channel), false, false, false, m_live_on))
+				m_voice_error.clear();
+			else
+				m_voice_error = "Not connected";
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Leave"))
+			m_voice.SendVoice(Trimmed(m_voice_guild), "", false, false, false, false);
+		if (!m_voice_error.empty())
+			ImGui::TextDisabled("%s", m_voice_error.c_str());
+		ImGui::EndChild();
+
+		ImGui::BeginChild("voice_ghost", ImVec2(0, 130), true);
+		ImGui::Text("Ghost deafen (payload exploit)");
+		ImGui::TextDisabled("Joins muted, server never applies it, you hear all.");
+		if (m_ghost_on)
+		{
+			if (ImGui::Button("Stop ghost", ImVec2(160, 0)))
+			{
+				m_ghost_run = false;
+				m_ghost_on = false;
+			}
+		}
+		else
+		{
+			if (ImGui::Button("Start ghost", ImVec2(160, 0)))
+			{
+				if (!m_voice.Running())
+					m_voice_error = "Connect gateway first";
+				else
+				{
+					m_ghost_on = true;
+					m_ghost_run = true;
+					int reassert = m_reassert;
+					std::string guild = Trimmed(m_voice_guild);
+					std::string channel = Trimmed(m_voice_channel);
+					std::thread([this, guild, channel, reassert]() {
+						while (m_ghost_run)
+						{
+							m_voice.SendVoice(guild, channel, true, true, true, false);
+							for (int left = 0; left < reassert * 10 && m_ghost_run; left++)
+								std::this_thread::sleep_for(std::chrono::milliseconds(100));
+						}
+					}).detach();
+					m_voice_error.clear();
+				}
+			}
+		}
+		ImGui::SameLine();
+		ImGui::PushItemWidth(100);
+		ImGui::SliderInt("Reassert s", &m_reassert, 5, 120);
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (m_live_on)
+		{
+			if (ImGui::SmallButton("LIVE off"))
+			{
+				m_live_on = false;
+				m_voice.SendVoice(Trimmed(m_voice_guild), Trimmed(m_voice_channel), false, false, false, false);
+			}
+		}
+		else
+		{
+			if (ImGui::SmallButton("Fake LIVE on"))
+			{
+				if (!m_voice.Running())
+					m_voice_error = "Connect gateway first";
+				else
+				{
+					m_live_on = true;
+					m_voice.SendVoice(Trimmed(m_voice_guild), Trimmed(m_voice_channel), false, false, false, true);
+					m_voice_error.clear();
+				}
+			}
+		}
+		if (m_ghost_on)
+			ImGui::TextDisabled("ghost active, reassert every %ds", m_reassert);
+		if (m_live_on)
+			ImGui::TextDisabled("fake LIVE badge on");
+		ImGui::EndChild();
+
+		ImGui::BeginChild("voice_sb", ImVec2(0, 0), true);
+		ImGui::Text("Soundboard spam");
+		ImGui::TextDisabled("Join voice first, then play. Needs SPEAK rights.");
+		ImGui::PushItemWidth(220);
+		ImGui::InputTextWithHint("##sbguild", "Guild id for sounds", m_sb_guild, sizeof(m_sb_guild));
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		if (m_sounds_busy)
+		{
+			ImGui::BeginDisabled();
+			ImGui::SmallButton("Loading...");
+			ImGui::EndDisabled();
+		}
+		else
+		{
+			if (ImGui::SmallButton("Load sounds"))
+			{
+				std::string guild = Trimmed(m_sb_guild);
+				if (guild.empty())
+					m_sb_error = "Need guild id";
+				else
+				{
+					m_sounds_busy = true;
+					m_sb_error.clear();
+					C_DiscordClient* client = m_store.Client();
+					std::thread([this, client, guild]() {
+						std::vector<S_Sound> sounds;
+						if (client->FetchSounds(guild, sounds))
+						{
+							m_sounds = sounds;
+							m_sound_index = 0;
+						}
+						else
+							m_sb_error = "No sounds";
+						m_sounds_busy = false;
+					}).detach();
+				}
+			}
+		}
+		if (!m_sounds.empty())
+		{
+			std::string preview = m_sounds[m_sound_index < (int)m_sounds.size() ? m_sound_index : 0].m_name;
+			ImGui::PushItemWidth(220);
+			if (ImGui::BeginCombo("Sound", preview.c_str()))
+			{
+				for (size_t i = 0; i < m_sounds.size(); i++)
+				{
+					bool selected = (int)i == m_sound_index;
+					if (ImGui::Selectable(m_sounds[i].m_name.c_str(), selected))
+						m_sound_index = (int)i;
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			ImGui::PushItemWidth(80);
+			ImGui::SliderInt("Times", &m_sb_count, 1, 30);
+			ImGui::PopItemWidth();
+			ImGui::SameLine();
+			ImGui::PushItemWidth(110);
+			ImGui::SliderInt("Delay ms", &m_sb_delay, 500, 10000);
+			ImGui::PopItemWidth();
+			if (m_sb_busy)
+			{
+				ImGui::BeginDisabled();
+				ImGui::Button("Playing...", ImVec2(160, 0));
+				ImGui::EndDisabled();
+				ImGui::SameLine();
+				ImGui::TextDisabled("%d / %d", m_sb_done.load(), m_sb_count);
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Stop##sb"))
+					m_sb_done = m_sb_count;
+			}
+			else
+			{
+				if (ImGui::Button("Spam sound", ImVec2(160, 0)))
+				{
+					std::string channel = Trimmed(m_voice_channel);
+					std::string guild = Trimmed(m_sb_guild);
+					std::string sound = m_sounds[m_sound_index].m_id;
+					int count = m_sb_count;
+					int delay = m_sb_delay;
+					if (channel.empty())
+						m_sb_error = "Set voice channel id above";
+					else
+					{
+						m_sb_busy = true;
+						m_sb_done = 0;
+						m_sb_error.clear();
+						C_DiscordClient* client = m_store.Client();
+						std::thread([this, client, channel, guild, sound, count, delay]() {
+							int ok = 0;
+							for (int i = 0; i < count && m_sb_done < count; i++)
+							{
+								std::string error;
+								if (client->PlayBoard(channel, sound, guild, error))
+									ok++;
+								else
+									m_sb_error = error;
+								m_sb_done++;
+								for (int left = 0; left < delay / 100 && m_sb_done < count; left++)
+									std::this_thread::sleep_for(std::chrono::milliseconds(100));
+							}
+							if (m_sb_error.empty())
+								m_sb_error = "Played " + FormatI32(ok);
+							m_sb_busy = false;
+						}).detach();
+					}
+				}
+			}
+		}
+		if (!m_sb_error.empty())
+			ImGui::TextDisabled("%s", m_sb_error.c_str());
+		ImGui::EndChild();
+	}
+
 	void C_App::DrawSettings()
 	{
 		ImGui::BeginChild("settings", ImVec2(0, 330), true);
@@ -2727,12 +3570,12 @@ namespace AvirA
 		ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
 		ImGui::Begin("main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
 		DrawTopBar();
-		const char* tabs[] = { "Tracker", "Sender", "Cleaner", "Automatic", "Typing", "Hooks", "Settings" };
-		for (int i = 0; i < 7; i++)
+		const char* tabs[] = { "Tracker", "Sender", "Cleaner", "Automatic", "Typing", "Hooks", "Checker", "Raid", "Voice", "Settings" };
+		for (int i = 0; i < 10; i++)
 		{
 			if (i)
 				ImGui::SameLine();
-			if (C_Theme::FadedButton(("##tab" + FormatI32(i)).c_str(), tabs[i], m_tab == i, 85))
+			if (C_Theme::FadedButton(("##tab" + FormatI32(i)).c_str(), tabs[i], m_tab == i, 80))
 				m_tab = i;
 		}
 		ImGui::Separator();
@@ -2748,6 +3591,12 @@ namespace AvirA
 			DrawTyping();
 		else if (m_tab == 5)
 			DrawWebhooks();
+		else if (m_tab == 6)
+			DrawChecker();
+		else if (m_tab == 7)
+			DrawRaid();
+		else if (m_tab == 8)
+			DrawVoice();
 		else
 			DrawSettings();
 		ImGui::End();

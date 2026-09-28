@@ -65,6 +65,27 @@ namespace AvirA
 		bool m_animated = false;
 	};
 
+	struct S_TokenInfo
+	{
+		std::string m_name;
+		std::string m_id;
+		std::string m_global;
+		std::string m_email;
+		std::string m_phone;
+		std::string m_locale;
+		std::string m_status;
+		std::string m_error;
+		bool m_verified = false;
+		bool m_mfa = false;
+		int m_nitro = 0;
+	};
+
+	struct S_Sound
+	{
+		std::string m_id;
+		std::string m_name;
+	};
+
 	class C_DiscordClient
 	{
 	public:
@@ -75,6 +96,18 @@ namespace AvirA
 		C_Http* Http();
 
 		bool CheckToken(std::string& name, std::string& id);
+		bool FetchTokenInfo(S_TokenInfo& out);
+		static std::string TokenUserId(const std::string& token);
+		bool SendTts(const std::string& channel, const std::string& text, std::string& error, std::string* out_id = nullptr);
+		bool SendPoll(const std::string& channel, const std::string& text, const std::string& question, const std::vector<std::string>& answers, int duration, bool multi, std::string& error, std::string* out_id = nullptr);
+		bool CreateThread(const std::string& channel, const std::string& name, int archive, int type, std::string& error, std::string* out_id = nullptr);
+		bool RingCall(const std::string& channel, const std::vector<std::string>& recipients, std::string& error);
+		bool CreateGroupDM(const std::vector<std::string>& recipients, std::string& error, std::string* out_id = nullptr);
+		bool PatchChannel(const std::string& channel, const std::string& name, const std::string& icon, std::string& error);
+		bool AddGroupRecipient(const std::string& channel, const std::string& user, std::string& error);
+		bool FetchSounds(const std::string& guild, std::vector<S_Sound>& out);
+		bool PlayBoard(const std::string& channel, const std::string& sound, const std::string& guild, std::string& error);
+		bool PatchMe(const std::string& global, std::string& error);
 		bool FetchUser(const std::string& id, S_Profile& out);
 		bool FetchGuilds(std::vector<S_Guild>& out);
 		bool FetchChannels(const std::string& guild, std::vector<S_Channel>& out);
