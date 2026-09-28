@@ -28,6 +28,7 @@ namespace AvirA
 		void Start();
 		void Stop();
 		bool Running() const;
+		bool WaitLive(int millis);
 		std::string State() const;
 
 	private:

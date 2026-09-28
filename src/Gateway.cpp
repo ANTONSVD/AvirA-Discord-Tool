@@ -161,6 +161,19 @@ namespace AvirA
 		return m_running;
 	}
 
+	bool C_Gateway::WaitLive(int millis)
+	{
+		for (int left = 0; left < millis; left += 100)
+		{
+			if (!m_running)
+				return false;
+			if (State() == "live")
+				return true;
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		}
+		return State() == "live";
+	}
+
 	std::string C_Gateway::State() const
 	{
 		std::lock_guard<std::mutex> guard(m_lock);

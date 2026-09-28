@@ -3279,10 +3279,27 @@ namespace AvirA
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Join"))
 		{
-			if (m_voice.SendVoice(Trimmed(m_voice_guild), Trimmed(m_voice_channel), false, false, false))
-				m_voice_error.clear();
+			if (!m_store.Logged())
+				m_voice_error = "Login first";
 			else
-				m_voice_error = "Not connected";
+			{
+				std::string guild = Trimmed(m_voice_guild);
+				std::string channel = Trimmed(m_voice_channel);
+				std::thread([this, guild, channel]() {
+					if (!m_voice.Running())
+					{
+						m_voice.SetToken(m_store.Token());
+						m_voice.Start();
+					}
+					if (m_voice.WaitLive(15000))
+					{
+						m_voice.SendVoice(guild, channel, false, false, false);
+						m_voice_error.clear();
+					}
+					else
+						m_voice_error = "No gateway";
+				}).detach();
+			}
 		}
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Leave"))
@@ -3293,7 +3310,7 @@ namespace AvirA
 
 		ImGui::BeginChild("voice_ghost", ImVec2(0, 130), true);
 		ImGui::Text("Ghost deafen (payload exploit)");
-		ImGui::TextDisabled("Enters muted with corrupted packet, server never applies it, you hear all. Do not press Join first.");
+		ImGui::TextDisabled("Joins clean unmuted, then corrupts mute packets, server keeps you unmuted.");
 		if (m_ghost_on)
 		{
 			if (ImGui::Button("Stop ghost", ImVec2(160, 0)))
@@ -3307,8 +3324,8 @@ namespace AvirA
 		{
 			if (ImGui::Button("Start ghost", ImVec2(160, 0)))
 			{
-				if (!m_voice.Running())
-					m_voice_error = "Connect gateway first";
+				if (!m_store.Logged())
+					m_voice_error = "Login first";
 				else if (Trimmed(m_voice_channel).empty())
 					m_voice_error = "Need voice channel id";
 				else
@@ -3319,6 +3336,21 @@ namespace AvirA
 					std::string guild = Trimmed(m_voice_guild);
 					std::string channel = Trimmed(m_voice_channel);
 					std::thread([this, guild, channel, reassert]() {
+						if (!m_voice.Running())
+						{
+							m_voice.SetToken(m_store.Token());
+							m_voice.Start();
+						}
+						if (!m_voice.WaitLive(15000))
+						{
+							m_voice_error = "No gateway";
+							m_ghost_run = false;
+							m_ghost_on = false;
+							return;
+						}
+						m_voice.SendVoice(guild, channel, false, false, false);
+						for (int left = 0; left < 15 && m_ghost_run; left++)
+							std::this_thread::sleep_for(std::chrono::milliseconds(100));
 						while (m_ghost_run)
 						{
 							m_voice.SendVoice(guild, channel, true, true, true);
@@ -3418,17 +3450,32 @@ namespace AvirA
 					std::string channel = Trimmed(m_voice_channel);
 					std::string sound = m_sounds[m_sound_index].m_id;
 					std::string guild = m_sounds[m_sound_index].m_guild;
+					std::string voice_guild = Trimmed(m_voice_guild);
 					int count = m_sb_count;
 					int delay = m_sb_delay;
 					if (channel.empty())
 						m_sb_error = "Set voice channel id above";
+					else if (!m_store.Logged())
+						m_sb_error = "Login first";
 					else
 					{
 						m_sb_busy = true;
 						m_sb_done = 0;
 						m_sb_error.clear();
 						C_DiscordClient* client = m_store.Client();
-						std::thread([this, client, channel, guild, sound, count, delay]() {
+						std::thread([this, client, channel, guild, voice_guild, sound, count, delay]() {
+							if (!m_voice.Running())
+							{
+								m_voice.SetToken(m_store.Token());
+								m_voice.Start();
+							}
+							if (m_voice.WaitLive(15000))
+							{
+								m_voice.SendVoice(voice_guild, channel, false, false, false);
+								std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+							}
+							else
+								m_sb_error = "No gateway, playing anyway";
 							int ok = 0;
 							for (int i = 0; i < count && m_sb_done < count; i++)
 							{
