@@ -1322,7 +1322,7 @@ namespace AvirA
 			ImGui::TextDisabled("%s", m_spam_error.c_str());
 		ImGui::EndChild();
 
-		ImGui::BeginChild("poll_box", ImVec2(0, 190), true);
+		ImGui::BeginChild("poll_box", ImVec2(0, 215), true);
 		ImGui::Text("Poll");
 		ImGui::PushItemWidth(-1);
 		ImGui::InputTextWithHint("##polltext", "Optional text above poll", m_poll_text, sizeof(m_poll_text));
@@ -1333,7 +1333,7 @@ namespace AvirA
 			ImGui::PushItemWidth(220);
 			ImGui::InputTextWithHint(("Answer " + FormatI32(i + 1) + "##pa").c_str(), ("Answer " + FormatI32(i + 1)).c_str(), m_poll_a[i], sizeof(m_poll_a[i]));
 			ImGui::PopItemWidth();
-			if (i < 3)
+			if (i % 2 == 0)
 				ImGui::SameLine();
 		}
 		ImGui::PushItemWidth(110);
