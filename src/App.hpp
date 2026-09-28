@@ -173,7 +173,8 @@ namespace AvirA
 		bool m_send_tts = false;
 		char m_poll_text[512] = {};
 		char m_poll_q[256] = {};
-		char m_poll_a[4][128] = {};
+		char m_poll_a[10][128] = {};
+		int m_poll_n = 4;
 		int m_poll_hours = 24;
 		bool m_poll_multi = false;
 		std::string m_poll_error;

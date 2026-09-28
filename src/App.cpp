@@ -506,7 +506,7 @@ namespace AvirA
 		std::string text = m_poll_text;
 		std::string question = m_poll_q;
 		std::vector<std::string> answers;
-		for (int i = 0; i < 4; i++)
+		for (int i = 0; i < m_poll_n && i < 10; i++)
 		{
 			if (!Trimmed(m_poll_a[i]).empty())
 				answers.push_back(m_poll_a[i]);
@@ -1328,7 +1328,7 @@ namespace AvirA
 		ImGui::InputTextWithHint("##polltext", "Optional text above poll", m_poll_text, sizeof(m_poll_text));
 		ImGui::InputTextWithHint("##pollq", "Question", m_poll_q, sizeof(m_poll_q));
 		ImGui::PopItemWidth();
-		for (int i = 0; i < 4; i++)
+		for (int i = 0; i < m_poll_n && i < 10; i++)
 		{
 			ImGui::PushItemWidth(220);
 			ImGui::InputTextWithHint(("Answer " + FormatI32(i + 1) + "##pa").c_str(), ("Answer " + FormatI32(i + 1)).c_str(), m_poll_a[i], sizeof(m_poll_a[i]));
@@ -1336,6 +1336,22 @@ namespace AvirA
 			if (i % 2 == 0)
 				ImGui::SameLine();
 		}
+		if (m_poll_n < 10)
+		{
+			if (ImGui::SmallButton("+##polladd"))
+				m_poll_n++;
+			ImGui::SameLine();
+		}
+		if (m_poll_n > 2)
+		{
+			if (ImGui::SmallButton("-##polldel"))
+			{
+				memset(m_poll_a[m_poll_n - 1], 0, sizeof(m_poll_a[m_poll_n - 1]));
+				m_poll_n--;
+			}
+			ImGui::SameLine();
+		}
+		ImGui::TextDisabled("%d / 10", m_poll_n);
 		ImGui::PushItemWidth(110);
 		ImGui::SliderInt("Hours", &m_poll_hours, 1, 768);
 		ImGui::PopItemWidth();
