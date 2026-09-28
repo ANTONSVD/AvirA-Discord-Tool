@@ -3252,7 +3252,6 @@ namespace AvirA
 			{
 				m_ghost_run = false;
 				m_ghost_on = false;
-				m_live_on = false;
 				m_voice.Stop();
 			}
 		}
@@ -3280,27 +3279,28 @@ namespace AvirA
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Join"))
 		{
-			if (m_voice.SendVoice(Trimmed(m_voice_guild), Trimmed(m_voice_channel), false, false, false, m_live_on))
+			if (m_voice.SendVoice(Trimmed(m_voice_guild), Trimmed(m_voice_channel), false, false, false))
 				m_voice_error.clear();
 			else
 				m_voice_error = "Not connected";
 		}
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Leave"))
-			m_voice.SendVoice(Trimmed(m_voice_guild), "", false, false, false, false);
+			m_voice.SendVoice(Trimmed(m_voice_guild), "", false, false, false);
 		if (!m_voice_error.empty())
 			ImGui::TextDisabled("%s", m_voice_error.c_str());
 		ImGui::EndChild();
 
 		ImGui::BeginChild("voice_ghost", ImVec2(0, 130), true);
 		ImGui::Text("Ghost deafen (payload exploit)");
-		ImGui::TextDisabled("Joins muted, server never applies it, you hear all.");
+		ImGui::TextDisabled("Enters muted with corrupted packet, server never applies it, you hear all. Do not press Join first.");
 		if (m_ghost_on)
 		{
 			if (ImGui::Button("Stop ghost", ImVec2(160, 0)))
 			{
 				m_ghost_run = false;
 				m_ghost_on = false;
+				m_voice.SendVoice(Trimmed(m_voice_guild), Trimmed(m_voice_channel), false, false, false);
 			}
 		}
 		else
@@ -3309,6 +3309,8 @@ namespace AvirA
 			{
 				if (!m_voice.Running())
 					m_voice_error = "Connect gateway first";
+				else if (Trimmed(m_voice_channel).empty())
+					m_voice_error = "Need voice channel id";
 				else
 				{
 					m_ghost_on = true;
@@ -3319,7 +3321,7 @@ namespace AvirA
 					std::thread([this, guild, channel, reassert]() {
 						while (m_ghost_run)
 						{
-							m_voice.SendVoice(guild, channel, true, true, true, false);
+							m_voice.SendVoice(guild, channel, true, true, true);
 							for (int left = 0; left < reassert * 10 && m_ghost_run; left++)
 								std::this_thread::sleep_for(std::chrono::milliseconds(100));
 						}
@@ -3332,33 +3334,8 @@ namespace AvirA
 		ImGui::PushItemWidth(100);
 		ImGui::SliderInt("Reassert s", &m_reassert, 5, 120);
 		ImGui::PopItemWidth();
-		ImGui::SameLine();
-		if (m_live_on)
-		{
-			if (ImGui::SmallButton("LIVE off"))
-			{
-				m_live_on = false;
-				m_voice.SendVoice(Trimmed(m_voice_guild), Trimmed(m_voice_channel), false, false, false, false);
-			}
-		}
-		else
-		{
-			if (ImGui::SmallButton("Fake LIVE on"))
-			{
-				if (!m_voice.Running())
-					m_voice_error = "Connect gateway first";
-				else
-				{
-					m_live_on = true;
-					m_voice.SendVoice(Trimmed(m_voice_guild), Trimmed(m_voice_channel), false, false, false, true);
-					m_voice_error.clear();
-				}
-			}
-		}
 		if (m_ghost_on)
 			ImGui::TextDisabled("ghost active, reassert every %ds", m_reassert);
-		if (m_live_on)
-			ImGui::TextDisabled("fake LIVE badge on");
 		ImGui::EndChild();
 
 		ImGui::BeginChild("voice_sb", ImVec2(0, 0), true);

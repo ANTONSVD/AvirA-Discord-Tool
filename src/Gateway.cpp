@@ -98,9 +98,14 @@ namespace AvirA
 		return WsSend(ws, m_send, text);
 	}
 
-	bool C_Gateway::SendVoice(const std::string& guild, const std::string& channel, bool mute, bool deaf, bool corrupt, bool stream)
+	bool C_Gateway::SendVoice(const std::string& guild, const std::string& channel, bool mute, bool deaf, bool corrupt)
 	{
-		std::string frame = "{\"op\":4,\"d\":{\"guild_id\":\"" + guild + "\",\"channel_id\":";
+		std::string frame = "{\"op\":4,\"d\":{\"guild_id\":";
+		if (guild.empty())
+			frame += "null";
+		else
+			frame += "\"" + guild + "\"";
+		frame += ",\"channel_id\":";
 		if (channel.empty())
 			frame += "null";
 		else
@@ -109,8 +114,6 @@ namespace AvirA
 		frame += mute ? "true" : "false";
 		frame += ",\"self_deaf\":";
 		frame += deaf ? "true" : "false";
-		if (stream)
-			frame += ",\"self_stream\":true";
 		frame += "}}";
 		if (corrupt)
 		{

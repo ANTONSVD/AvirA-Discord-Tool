@@ -220,7 +220,6 @@ namespace AvirA
 		char m_voice_guild[64] = {};
 		char m_voice_channel[64] = {};
 		bool m_ghost_on = false;
-		bool m_live_on = false;
 		int m_reassert = 15;
 		std::atomic<bool> m_ghost_run = false;
 		std::string m_voice_error;
