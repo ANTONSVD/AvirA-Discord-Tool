@@ -26,7 +26,6 @@ namespace AvirA
 		std::string m_name;
 		bool m_on = true;
 		bool m_reply_on = false;
-		bool m_ladder = false;
 		std::vector<std::string> m_replies;
 		int m_reply_last = -1;
 		std::vector<std::string> m_keywords;
@@ -69,7 +68,6 @@ namespace AvirA
 
 		void SetTargetOn(const std::string& id, bool value);
 		void SetReplyOn(const std::string& id, bool value);
-		void SetLadder(const std::string& id, bool value);
 		bool AddReply(const std::string& id, const std::string& text);
 		void RemoveReply(const std::string& id, size_t index);
 		bool AddKeyword(const std::string& id, const std::string& text);

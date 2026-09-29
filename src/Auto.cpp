@@ -1,5 +1,4 @@
 #include "Auto.hpp"
-#include "Xivivide.hpp"
 
 namespace AvirA
 {
@@ -246,53 +245,6 @@ namespace AvirA
 			if (m_items[i].m_id == id)
 				m_items[i].m_reply_on = value;
 		}
-	}
-
-	void C_Auto::SetLadder(const std::string& id, bool value)
-	{
-		std::lock_guard<std::mutex> guard(m_lock);
-		for (size_t i = 0; i < m_items.size(); i++)
-		{
-			if (m_items[i].m_id == id)
-				m_items[i].m_ladder = value;
-		}
-	}
-
-	static bool IsXivivide(const std::string& text)
-	{
-		std::string low = Utf8Lowered(Trimmed(text));
-		if (low.empty())
-			return false;
-		for (size_t i = 0; XIVIVIDE_TEMPLATES[i] != nullptr; i++)
-		{
-			if (low == Utf8Lowered(XIVIVIDE_TEMPLATES[i]))
-				return true;
-		}
-		return false;
-	}
-
-	static std::vector<std::string> SplitLadder(const std::string& text)
-	{
-		std::vector<std::string> out;
-		if (IsXivivide(text))
-		{
-			out.push_back(Trimmed(text));
-			return out;
-		}
-		size_t at = 0;
-		while (at < text.size())
-		{
-			size_t end = text.find('\n', at);
-			std::string line = Trimmed(text.substr(at, end == std::string::npos ? std::string::npos : end - at));
-			if (!line.empty())
-				out.push_back(line);
-			if (end == std::string::npos)
-				break;
-			at = end + 1;
-		}
-		if (out.empty())
-			out.push_back(Trimmed(text));
-		return out;
 	}
 
 	void C_Auto::SetAccounts(const std::vector<S_AutoAccount>& accounts)
@@ -634,7 +586,6 @@ namespace AvirA
 			bool reply_on = false;
 			bool react_on = false;
 			bool matched = false;
-			bool ladder = false;
 			std::string content;
 			std::vector<std::string> replies;
 			int reply_last = -1;
@@ -654,7 +605,6 @@ namespace AvirA
 				content = item.GetText("content");
 				matched = !target->m_keywords.empty() && HasKeyword(content, target->m_keywords);
 				reply_on = target->m_reply_on && (target->m_keywords.empty() || matched);
-				ladder = target->m_ladder;
 				if (reply_on)
 				{
 					replies = target->m_replies;
@@ -697,10 +647,7 @@ namespace AvirA
 				else
 				{
 					std::vector<std::string> parts;
-					if (ladder)
-						parts = SplitLadder(reply_text);
-					else
-						parts.push_back(reply_text);
+					parts.push_back(reply_text);
 					bool want_delete = delete_after > 0 && (delete_scope == 0 || matched);
 					bool use_multi = !writers.empty();
 					size_t rounds = use_multi ? writers.size() : 1;
@@ -718,7 +665,7 @@ namespace AvirA
 									std::lock_guard<std::mutex> guard(m_lock);
 									S_AutoTarget* again = Find(author_id);
 									if (again)
-										Emit(*again, "reply", "Replied" + (who.empty() ? "" : " as " + who) + (parts.size() > 1 ? " ladder" : "") + " in #" + channel.m_name + ": " + parts[p].substr(0, 80));
+										Emit(*again, "reply", "Replied" + (who.empty() ? "" : " as " + who) + " in #" + channel.m_name + ": " + parts[p].substr(0, 80));
 								}
 								if (want_delete && !reply_id.empty())
 								{

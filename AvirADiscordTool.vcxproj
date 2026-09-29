@@ -118,7 +118,6 @@
     <ClInclude Include="src\Captcha.hpp" />
     <ClInclude Include="src\Checker.hpp" />
     <ClInclude Include="src\Nicks.hpp" />
-    <ClInclude Include="src\Xivivide.hpp" />
     <ClInclude Include="src\Typing.hpp" />
     <ClInclude Include="src\Gateway.hpp" />
     <ClInclude Include="src\Webhooks.hpp" />
