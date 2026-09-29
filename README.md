@@ -2,7 +2,8 @@
 
 Проект опенсурс, код можно читать. Токены лежат в кфг у тебя на компе, никуда кроме дискорда тулза ничего не шлет (в дсе только апи запросы).
 
-<img width="966" height="753" alt="image" src="https://github.com/user-attachments/assets/5eed1496-4adb-47cc-841e-abbaba07e78c" />
+<img width="966" height="753" alt="image" src="https://github.com/user-attachments/assets/0356a909-87ed-4bce-878d-c44611439c6a" />
+
 
 
 ## Что нужно для билда
